@@ -2,7 +2,22 @@ name: CI
 
 on:
   push:
+    paths:
+      - "components/**"
+      - "example.yaml"
+      - "tests/**"
+      - ".github/workflows/ci.yml"
   pull_request:
+    paths:
+      - "components/**"
+      - "example.yaml"
+      - "tests/**"
+      - ".github/workflows/ci.yml"
+
+# A newer push to the same branch supersedes the running build.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
