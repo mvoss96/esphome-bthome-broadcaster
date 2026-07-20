@@ -73,9 +73,6 @@ Supported `type` values map 1:1 to the bthome-cpp factory names, e.g.
 - Button/dimmer events and trigger-based devices.
 - nRF52/Zephyr targets (ESP32 family only).
 
-> **TODO before first release:** pin the bthome-cpp dependency to a tagged
-> version in `__init__.py` (currently tracking `#main`).
-
 ## License
 
 [MIT](LICENSE)

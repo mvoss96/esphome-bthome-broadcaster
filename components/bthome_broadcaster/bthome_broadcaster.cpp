@@ -110,7 +110,7 @@ void BTHomeBroadcaster::build_next_payload_() {
   // Maximum size of the BTHome service-data AD element for this advertisement.
   const size_t budget = kMaxAdvBytes - kFlagsBytes - name_bytes;
 
-  BTHomePacket<kPacketCapacity> packet;
+  BTHome::Packet<kPacketCapacity> packet;
   packet.add(BTHome::packet_id(this->packet_id_));
 
   size_t index = this->next_index_ % total;
@@ -133,7 +133,7 @@ void BTHomeBroadcaster::build_next_payload_() {
   }
   this->packet_id_++;
 
-  const int size = build_bthome_advertising(packet, this->adv_data_, sizeof(this->adv_data_), name, complete_name);
+  const int size = BTHome::build_advertising(packet, this->adv_data_, sizeof(this->adv_data_), name, complete_name);
   if (size < 0) {
     ESP_LOGW(TAG, "Failed to build advertisement payload");
     return;

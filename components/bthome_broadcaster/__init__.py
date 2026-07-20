@@ -25,7 +25,7 @@ CONF_BINARY_SENSORS = "binary_sensors"
 CONF_MIN_INTERVAL = "min_interval"
 CONF_MAX_INTERVAL = "max_interval"
 
-BTHOME_CPP_REPOSITORY = "https://github.com/mvoss96/bthome-cpp.git#main"
+BTHOME_CPP_REPOSITORY = "https://github.com/mvoss96/bthome-cpp.git#v0.1.0"
 
 # Maps the user-facing type name (== bthome-cpp factory name) to the C++ argument
 # type of the factory. "float" factories are passed through directly; integer
