@@ -6,6 +6,8 @@
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
+#include <cinttypes>
+
 namespace esphome::bthome_broadcaster {
 
 static const char *const TAG = "bthome_broadcaster";
@@ -41,7 +43,7 @@ void BTHomeBroadcaster::dump_config() {
 #endif
   ESP_LOGCONFIG(TAG,
                 "BTHome Broadcaster:\n"
-                "  Interval: %ums\n"
+                "  Interval: %" PRIu32 "ms\n"
                 "  Sensors: %u, Binary Sensors: %u\n"
                 "  Advertise name: %s",
                 this->advertise_interval_, static_cast<unsigned>(num_sensors),
