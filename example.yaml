@@ -1,0 +1,45 @@
+esphome:
+  name: bthome-test
+
+esp32:
+  board: esp32-c6-devkitc-1
+  variant: esp32c6
+  framework:
+    type: esp-idf
+
+logger:
+
+external_components:
+  # For local development; replace with the github:// source for normal use:
+  # - source: github://mvoss96/esphome-bthome-broadcaster
+  #   components: [bthome_broadcaster]
+  - source:
+      type: local
+      path: components
+
+esp32_ble:
+
+sensor:
+  - platform: internal_temperature
+    id: cpu_temp
+
+  - platform: template
+    id: fake_humidity
+    lambda: return 42.0;
+    update_interval: 30s
+
+binary_sensor:
+  - platform: template
+    id: fake_motion
+    lambda: return millis() % 20000 < 10000;
+
+bthome_broadcaster:
+  interval: 10s
+  sensors:
+    - type: temperature
+      source: cpu_temp
+    - type: humidity
+      source: fake_humidity
+  binary_sensors:
+    - type: motion
+      source: fake_motion
