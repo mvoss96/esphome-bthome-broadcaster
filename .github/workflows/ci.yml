@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install ESPHome
+        run: pip install esphome
+      - name: Validate configs
+        run: |
+          esphome config example.yaml
+          esphome config tests/esp32.yaml
+
+  compile:
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [example.yaml, tests/esp32.yaml]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ matrix.config }}-${{ hashFiles('**/*.yaml') }}
+          restore-keys: |
+            pio-${{ runner.os }}-${{ matrix.config }}-
+      - name: Install ESPHome
+        run: pip install esphome
+      - name: Compile
+        run: |
+          set -o pipefail
+          esphome compile ${{ matrix.config }} 2>&1 | tee build.log
+      - name: Fail on component warnings
+        run: |
+          if grep -i "warning" build.log | grep -q "bthome_broadcaster"; then
+            echo "::error::Compiler warnings in bthome_broadcaster:"
+            grep -i "warning" build.log | grep "bthome_broadcaster"
+            exit 1
+          fi

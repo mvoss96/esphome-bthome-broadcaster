@@ -1,0 +1,44 @@
+esphome:
+  name: bthome-test-esp32
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+
+esp32_ble:
+
+sensor:
+  - platform: template
+    id: fake_temperature
+    lambda: return 21.5;
+    update_interval: 30s
+
+  - platform: template
+    id: fake_humidity
+    lambda: return 42.0;
+    update_interval: 30s
+
+binary_sensor:
+  - platform: template
+    id: fake_motion
+    lambda: return millis() % 20000 < 10000;
+
+bthome_broadcaster:
+  interval: 10s
+  name: esp32test
+  sensors:
+    - type: temperature
+      source: fake_temperature
+    - type: humidity
+      source: fake_humidity
+  binary_sensors:
+    - type: motion
+      source: fake_motion

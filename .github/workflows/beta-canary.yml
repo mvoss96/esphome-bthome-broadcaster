@@ -1,0 +1,43 @@
+name: Beta canary
+
+# Weekly compile against the ESPHome beta channel: an early warning for
+# upstream API breakage before it reaches a stable release.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  compile-beta:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [example.yaml, tests/esp32.yaml]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-beta-${{ runner.os }}-${{ matrix.config }}-${{ hashFiles('**/*.yaml') }}
+          restore-keys: |
+            pio-beta-${{ runner.os }}-${{ matrix.config }}-
+            pio-${{ runner.os }}-${{ matrix.config }}-
+      - name: Install ESPHome (beta)
+        run: pip install --pre esphome
+      - name: Compile
+        run: |
+          set -o pipefail
+          esphome compile ${{ matrix.config }} 2>&1 | tee build.log
+      - name: Fail on component warnings
+        run: |
+          if grep -i "warning" build.log | grep -q "bthome_broadcaster"; then
+            echo "::error::Compiler warnings in bthome_broadcaster:"
+            grep -i "warning" build.log | grep "bthome_broadcaster"
+            exit 1
+          fi
