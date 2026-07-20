@@ -1,7 +1,13 @@
 import esphome.codegen as cg
 from esphome.components import binary_sensor, esp32_ble, sensor
-from esphome.components.esp32 import request_bluetooth
+from esphome.components.esp32 import add_idf_sdkconfig_option
 from esphome.components.esp32_ble import CONF_BLE_ID
+
+try:
+    # ESPHome >= 2026.7
+    from esphome.components.esp32 import request_bluetooth
+except ImportError:
+    request_bluetooth = None
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_INTERVAL, CONF_NAME, CONF_TX_POWER, CONF_TYPE
 from esphome.core import TimePeriod
@@ -223,6 +229,11 @@ async def to_code(config):
         )
 
     cg.add_library("bthome-cpp", None, BTHOME_CPP_REPOSITORY)
+    cg.add_define("USE_ESP32_BLE_UUID")
     cg.add_define("USE_ESP32_BLE_ADVERTISING")
 
-    request_bluetooth(ble_42=True)
+    if request_bluetooth is not None:
+        request_bluetooth(ble_42=True)
+    else:
+        add_idf_sdkconfig_option("CONFIG_BT_ENABLED", True)
+        add_idf_sdkconfig_option("CONFIG_BT_BLE_42_FEATURES_SUPPORTED", True)
