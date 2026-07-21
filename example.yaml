@@ -33,6 +33,12 @@ binary_sensor:
     id: fake_motion
     lambda: return millis() % 20000 < 10000;
 
+text_sensor:
+  - platform: template
+    id: status_text
+    lambda: return {"OK"};
+    update_interval: 60s
+
 bthome_broadcaster:
   interval: 10s
   sensors:
@@ -43,3 +49,5 @@ bthome_broadcaster:
   binary_sensors:
     - type: motion
       source: fake_motion
+  text_sensors:
+    - source: status_text

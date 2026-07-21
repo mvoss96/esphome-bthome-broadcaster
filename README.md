@@ -1,7 +1,8 @@
 # esphome-bthome-broadcaster
 
-An external [ESPHome](https://esphome.io) component that broadcasts sensor and
-binary sensor values as [BTHome v2](https://bthome.io) BLE advertisements.
+An external [ESPHome](https://esphome.io) component that broadcasts sensor,
+binary sensor, and text sensor values as [BTHome v2](https://bthome.io) BLE
+advertisements.
 Devices show up automatically in Home Assistant via the native BTHome
 integration — no WiFi/API connection required for the sensor data path.
 
@@ -63,12 +64,25 @@ everywhere else.
 | `tx_power` | `3dBm` | BLE TX power (not available with `esp32_hosted`). |
 | `sensors` | — | List of `{type, source}`: BTHome measurement type + id of an existing `sensor`. |
 | `binary_sensors` | — | List of `{type, source}`: BTHome binary type + id of an existing `binary_sensor`. |
+| `text_sensors` | — | At most one `{source}`: id of an existing `text_sensor`, broadcast as BTHome text (`0x53`). See below for length limits. |
 
 Supported `type` values map 1:1 to the bthome-cpp factory names, e.g.
 `temperature`, `humidity`, `pressure`, `battery`, `voltage`, `co2`, `power`,
 `energy`, `illuminance`, `pm2_5`, `distance_mm`, … for sensors and `motion`,
 `door`, `window`, `occupancy`, `smoke`, `opening`, … for binary sensors. See
 [`__init__.py`](components/bthome_broadcaster/__init__.py) for the full lists.
+
+### Text length limits
+
+BLE advertisements are small: after protocol overhead, a text value can use at
+most **19 bytes** — and advertising a name eats into that (e.g. **7 bytes**
+with a full 10-char name). Longer values are truncated at a UTF-8 character
+boundary, with a one-time warning in the log. Disable the name (`name: false`)
+or keep it short if you need longer texts.
+
+Only one text sensor is supported: Home Assistant cannot tell multiple BTHome
+text measurements apart unless they arrive in the same advertisement, which
+two text entries never fit into.
 
 ## How it works
 
@@ -89,6 +103,7 @@ Supported `type` values map 1:1 to the bthome-cpp factory names, e.g.
 
 - Encryption (AES-CCM) — planned once available in bthome-cpp.
 - Button/dimmer events and trigger-based devices.
+- Multiple text sensors (see above).
 - nRF52/Zephyr targets (ESP32 family only).
 
 ## License

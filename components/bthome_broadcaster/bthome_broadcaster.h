@@ -13,6 +13,9 @@
 #ifdef USE_BINARY_SENSOR
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #endif
+#ifdef USE_TEXT_SENSOR
+#include "esphome/components/text_sensor/text_sensor.h"
+#endif
 
 #ifndef CONFIG_ESP_HOSTED_ENABLE_BT_BLUEDROID
 #include <esp_bt.h>
@@ -61,6 +64,9 @@ class BTHomeBroadcaster final : public Component {
     this->binary_sensors_.push_back(BinarySensorEntry{source, factory});
   }
 #endif
+#ifdef USE_TEXT_SENSOR
+  void set_text_sensor(text_sensor::TextSensor *source) { this->text_sensor_ = source; }
+#endif
 
   void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
 
@@ -76,6 +82,9 @@ class BTHomeBroadcaster final : public Component {
   void build_next_payload_();
   size_t entry_count_() const;
   bool measurement_for_(size_t index, BTHome::Measurement &out) const;
+#ifdef USE_TEXT_SENSOR
+  bool add_text_(BTHome::Packet<kPacketCapacity> &packet, size_t budget, size_t base_size);
+#endif
 
 #ifdef USE_SENSOR
   struct SensorEntry {
@@ -90,6 +99,10 @@ class BTHomeBroadcaster final : public Component {
     BinarySensorFactory factory;
   };
   std::vector<BinarySensorEntry> binary_sensors_;
+#endif
+#ifdef USE_TEXT_SENSOR
+  text_sensor::TextSensor *text_sensor_{nullptr};
+  bool text_truncation_warned_{false};
 #endif
 
   uint32_t advertise_interval_{10000};
