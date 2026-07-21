@@ -6,6 +6,12 @@
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
+#ifdef USE_BTHOME_ENCRYPTION
+#include "esphome/core/helpers.h"
+
+#include <esp_mac.h>
+#endif
+
 #include <algorithm>
 #include <cinttypes>
 #include <cstring>
@@ -40,6 +46,26 @@ void BTHomeBroadcaster::setup() {
     }
   }
 
+#ifdef USE_BTHOME_ENCRYPTION
+  if (this->encrypted_) {
+    // The nonce must contain the same MAC the BLE stack advertises with
+    // (BLE_ADDR_TYPE_PUBLIC below), otherwise receivers cannot decrypt.
+    uint8_t mac[BTHome::Encryptor::kMacBytes] = {};
+    esp_read_mac(mac, ESP_MAC_BT);
+    this->encryptor_.setMac(mac);
+
+    // Restore the counter with the safety margin and persist the new base.
+    this->counter_pref_ = global_preferences->make_preference<uint32_t>(fnv1_hash("bthome_broadcaster_counter"), true);
+    uint32_t counter = 0;
+    this->counter_pref_.load(&counter);  // Stays 0 on first boot.
+    counter += kCounterMargin;
+    this->encryptor_.setCounter(counter);
+    this->counter_saved_ = counter;
+    this->counter_pref_.save(&counter);
+    global_preferences->sync();
+  }
+#endif
+
   this->adv_params_ = {
       .adv_int_min = static_cast<uint16_t>(this->min_interval_ / 0.625f),
       .adv_int_max = static_cast<uint16_t>(this->max_interval_ / 0.625f),
@@ -73,16 +99,22 @@ void BTHomeBroadcaster::dump_config() {
 #ifdef USE_TEXT_SENSOR
   num_text_sensors = (this->text_sensor_ != nullptr) ? 1 : 0;
 #endif
+  bool encrypted = false;
+#ifdef USE_BTHOME_ENCRYPTION
+  encrypted = this->encrypted_;
+#endif
   ESP_LOGCONFIG(TAG,
                 "BTHome Broadcaster:\n"
                 "  Interval: %" PRIu32 "ms\n"
                 "  Sensors: %u, Binary Sensors: %u, Text Sensors: %u\n"
-                "  Name (%s): %s",
+                "  Name (%s): %s\n"
+                "  Encryption: %s",
                 this->advertise_interval_, static_cast<unsigned>(num_sensors),
                 static_cast<unsigned>(num_binary_sensors), static_cast<unsigned>(num_text_sensors),
                 this->name_in_advertisement_ ? "advertisement" : "scan response",
                 this->name_enabled_ ? (this->local_name_.empty() ? "(device name)" : this->local_name_.c_str())
-                                    : "no");
+                                    : "no",
+                encrypted ? "AES-CCM" : "no");
 }
 
 size_t BTHomeBroadcaster::entry_count_() const {
@@ -126,22 +158,11 @@ bool BTHomeBroadcaster::measurement_for_(size_t index, BTHome::Measurement &out)
   return false;
 }
 
-void BTHomeBroadcaster::build_next_payload_() {
-  this->adv_size_ = 0;
-  const size_t total = this->entry_count_();
-  if (total == 0) {
-    return;
-  }
-
-  const char *name = this->adv_name_.empty() ? nullptr : this->adv_name_.c_str();
-  const size_t name_bytes = (name != nullptr) ? 2 + this->adv_name_.size() : 0;
-  // Maximum size of the BTHome service-data AD element for this advertisement.
-  const size_t budget = kPacketCapacity - name_bytes;
-
-  BTHome::Packet<kPacketCapacity> packet;
+template<typename PacketT> bool BTHomeBroadcaster::fill_packet_(PacketT &packet, size_t budget) {
   packet.add(BTHome::packet_id(this->packet_id_));
-  const size_t base_size = packet.size();  // Header + packet_id bytes.
+  const size_t base_size = packet.size();  // Header + packet_id (+ encryption overhead) bytes.
 
+  const size_t total = this->entry_count_();
   size_t index = this->next_index_ % total;
   bool added_any = false;
   for (size_t visited = 0; visited < total; visited++) {
@@ -170,8 +191,44 @@ void BTHomeBroadcaster::build_next_payload_() {
     index = (index + 1) % total;
   }
   this->next_index_ = index;
+  return added_any;
+}
 
-  if (!added_any) {
+void BTHomeBroadcaster::build_next_payload_() {
+  this->adv_size_ = 0;
+  if (this->entry_count_() == 0) {
+    return;
+  }
+
+#ifdef USE_BTHOME_ENCRYPTION
+  if (this->encrypted_) {
+    // name_placement: advertisement is rejected at config time with
+    // encryption, so the whole budget belongs to the service-data element.
+    // EncryptedPacket::size() already includes the 8-byte overhead.
+    BTHome::EncryptedPacket<kPacketCapacity> packet;
+    if (!this->fill_packet_(packet, kPacketCapacity)) {
+      return;  // No source has published a state yet.
+    }
+    this->packet_id_++;
+
+    const int size = BTHome::build_encrypted_advertising(packet, this->encryptor_, this->adv_data_, sizeof(this->adv_data_));
+    if (size < 0) {
+      ESP_LOGW(TAG, "Failed to build encrypted advertisement payload");
+      return;
+    }
+    this->adv_size_ = static_cast<size_t>(size);
+    this->save_counter_if_due_();
+    return;
+  }
+#endif
+
+  const char *name = this->adv_name_.empty() ? nullptr : this->adv_name_.c_str();
+  const size_t name_bytes = (name != nullptr) ? 2 + this->adv_name_.size() : 0;
+  // Maximum size of the BTHome service-data AD element for this advertisement.
+  const size_t budget = kPacketCapacity - name_bytes;
+
+  BTHome::Packet<kPacketCapacity> packet;
+  if (!this->fill_packet_(packet, budget)) {
     return;  // No source has published a state yet.
   }
   this->packet_id_++;
@@ -186,7 +243,7 @@ void BTHomeBroadcaster::build_next_payload_() {
 }
 
 #ifdef USE_TEXT_SENSOR
-bool BTHomeBroadcaster::add_text_(BTHome::Packet<kPacketCapacity> &packet, size_t budget, size_t base_size) {
+template<typename PacketT> bool BTHomeBroadcaster::add_text_(PacketT &packet, size_t budget, size_t base_size) {
   // Truncate to what fits in an otherwise-empty packet (never more than the
   // library's 24-byte limit): the text must always be sendable, otherwise the
   // rotation could stall on an entry that can never fit.
@@ -217,6 +274,25 @@ bool BTHomeBroadcaster::add_text_(BTHome::Packet<kPacketCapacity> &packet, size_
   }
   packet.add(text);
   return true;
+}
+#endif
+
+#ifdef USE_BTHOME_ENCRYPTION
+void BTHomeBroadcaster::set_encryption_key(const std::vector<uint8_t> &key) {
+  uint8_t k[BTHome::Encryptor::kKeyBytes] = {};
+  memcpy(k, key.data(), std::min(key.size(), sizeof(k)));
+  this->encryptor_.setKey(k);
+  this->encrypted_ = true;
+}
+
+void BTHomeBroadcaster::save_counter_if_due_() {
+  if (this->encryptor_.counter() - this->counter_saved_ < kCounterMargin) {
+    return;
+  }
+  uint32_t counter = this->encryptor_.counter();
+  this->counter_saved_ = counter;
+  this->counter_pref_.save(&counter);
+  global_preferences->sync();
 }
 #endif
 

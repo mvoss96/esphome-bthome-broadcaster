@@ -5,6 +5,7 @@ binary sensor, and text sensor values as [BTHome v2](https://bthome.io) BLE
 advertisements.
 Devices show up automatically in Home Assistant via the native BTHome
 integration — no WiFi/API connection required for the sensor data path.
+Supports optional BTHome AES-CCM encryption.
 
 Payload encoding is done by [bthome-cpp](https://github.com/mvoss96/bthome-cpp)
 (pulled in automatically as a PlatformIO library — no vendored code). BLE
@@ -61,6 +62,7 @@ everywhere else.
 | `interval` | `10s` | Minimum time between payload updates/rotations (≥ 100ms). |
 | `name` | `true` | Advertise the device name. `true` uses the ESPHome device name, a string overrides it, `false` disables. |
 | `name_placement` | `scan_response` | Where the name is sent. `scan_response` (own 31 bytes, max 29 chars) keeps the full advertisement for sensor data but is invisible to purely passive scanners. `advertisement` (max 10 chars) is visible to passive scanners but shrinks the per-packet data budget. Over-long names are truncated (Shortened Local Name). |
+| `encryption_key` | — | Optional 16-byte AES key as 32 hex characters. Enables BTHome AES-CCM encryption; see below. |
 | `min_interval` / `max_interval` | `100ms` | BLE advertising interval range (20ms–10.24s). |
 | `tx_power` | `3dBm` | BLE TX power (not available with `esp32_hosted`). |
 | `sensors` | — | List of `{type, source}`: BTHome measurement type + id of an existing `sensor`. |
@@ -73,6 +75,31 @@ Supported `type` values map 1:1 to the bthome-cpp factory names, e.g.
 `door`, `window`, `occupancy`, `smoke`, `opening`, … for binary sensors. See
 [`__init__.py`](components/bthome_broadcaster/__init__.py) for the full lists.
 
+### Encryption
+
+```yaml
+bthome_broadcaster:
+  encryption_key: "231d39c1d7cc1ab1aee224cd096db932"  # generate your own!
+```
+
+Encrypts every advertisement with BTHome's AES-CCM scheme. Home Assistant asks
+for the same 32-hex-character key once when the device is added (or under
+*Settings → Devices → BTHome device → Configure* if it was added before).
+Generate a random key, e.g. with `openssl rand -hex 16`.
+
+What to know:
+
+- **8 bytes of the data budget** go to the encryption counter + auth tag, so
+  fewer measurements fit per packet (rotation handles the rest automatically)
+  and text values shrink to at most **11 bytes**.
+- The **replay-protection counter is persisted** in flash and restored with a
+  safety margin of 1024 after every reboot, so receivers never see a repeated
+  counter — no re-pairing needed after crashes or power loss. Flash is written
+  only once per 1024 packets.
+- `name_placement: advertisement` is rejected together with `encryption_key`
+  (both would not leave room for any measurement); the default scan-response
+  name works normally.
+
 ### Text length limits
 
 BLE advertisements are small: after protocol overhead, a text value can use at
@@ -80,7 +107,8 @@ most **19 bytes**. Longer values are truncated at a UTF-8 character boundary,
 with a one-time warning in the log. With the default
 `name_placement: scan_response` the name does not reduce this budget; with
 `name_placement: advertisement` the budget shrinks to `17 − name length`
-(as few as **7 bytes** with a full 10-char name).
+(as few as **7 bytes** with a full 10-char name). With `encryption_key` the
+budget is **11 bytes**.
 
 Only one text sensor is supported: Home Assistant cannot tell multiple BTHome
 text measurements apart unless they arrive in the same advertisement, which
@@ -112,7 +140,6 @@ two text entries never fit into.
 
 ## Not (yet) supported
 
-- Encryption (AES-CCM) — planned once available in bthome-cpp.
 - Button/dimmer events and trigger-based devices.
 - Multiple text sensors (see above).
 - nRF52/Zephyr targets (ESP32 family only).

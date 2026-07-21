@@ -23,6 +23,11 @@
 #include <esp_gap_ble_api.h>
 
 #include <bthome.h>
+#ifdef USE_BTHOME_ENCRYPTION
+#include "esphome/core/preferences.h"
+
+#include <bthome_crypto_mbedtls.h>
+#endif
 
 #include <cmath>
 #include <string>
@@ -51,6 +56,9 @@ class BTHomeBroadcaster final : public Component {
   void set_name_enabled(bool enabled) { this->name_enabled_ = enabled; }
   void set_local_name(const std::string &name) { this->local_name_ = name; }
   void set_name_in_advertisement(bool val) { this->name_in_advertisement_ = val; }
+#ifdef USE_BTHOME_ENCRYPTION
+  void set_encryption_key(const std::vector<uint8_t> &key);
+#endif
 #ifndef CONFIG_ESP_HOSTED_ENABLE_BT_BLUEDROID
   void set_tx_power(esp_power_level_t val) { this->tx_power_ = val; }
 #endif
@@ -85,8 +93,15 @@ class BTHomeBroadcaster final : public Component {
   void build_next_payload_();
   size_t entry_count_() const;
   bool measurement_for_(size_t index, BTHome::Measurement &out) const;
+  // Templated on the packet type: BTHome::Packet<N> for plaintext,
+  // BTHome::EncryptedPacket<N> for encrypted advertisements. Both report the
+  // final on-air size via size(), so the budget logic is identical.
+  template<typename PacketT> bool fill_packet_(PacketT &packet, size_t budget);
 #ifdef USE_TEXT_SENSOR
-  bool add_text_(BTHome::Packet<kPacketCapacity> &packet, size_t budget, size_t base_size);
+  template<typename PacketT> bool add_text_(PacketT &packet, size_t budget, size_t base_size);
+#endif
+#ifdef USE_BTHOME_ENCRYPTION
+  void save_counter_if_due_();
 #endif
 
 #ifdef USE_SENSOR
@@ -118,6 +133,17 @@ class BTHomeBroadcaster final : public Component {
   bool adv_name_complete_{true};
 #ifndef CONFIG_ESP_HOSTED_ENABLE_BT_BLUEDROID
   esp_power_level_t tx_power_{};
+#endif
+
+#ifdef USE_BTHOME_ENCRYPTION
+  // On boot the counter resumes at last-persisted + margin, so counter values
+  // consumed between flash writes can never repeat after a crash or power
+  // loss (receivers reject non-increasing counters as replays).
+  static constexpr uint32_t kCounterMargin = 1024;
+  BTHome::Encryptor encryptor_{&BTHome::mbedtls_ccm_backend};
+  bool encrypted_{false};
+  ESPPreferenceObject counter_pref_;
+  uint32_t counter_saved_{0};
 #endif
 
   uint8_t adv_data_[kMaxAdvBytes];
