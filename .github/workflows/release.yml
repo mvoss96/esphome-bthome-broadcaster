@@ -62,5 +62,5 @@ jobs:
             --notes "**Tested against ESPHome ${{ steps.versions.outputs.esphome }}** (esp32-c6 and esp32, esp-idf framework).
 
           bthome-cpp dependency: \`${{ steps.versions.outputs.bthome_cpp }}\`
-          Minimum supported ESPHome: 2026.4 (via compat shim).
+          Minimum supported ESPHome: 2026.7.
           "
