@@ -17,7 +17,7 @@ Requires **ESPHome ≥ 2026.7.0**.
 
 ```yaml
 external_components:
-  - source: github://mvoss96/esphome-bthome-broadcaster
+  - source: github://mvoss96/esphome-bthome-broadcaster@v0.1.0
     components: [bthome_broadcaster]
 
 esp32_ble:
@@ -34,6 +34,24 @@ bthome_broadcaster:
 ```
 
 See [example.yaml](example.yaml) for a complete ESP32-C6 example.
+
+## Supported hardware
+
+The component contains no variant-specific code — it inherits BLE support
+from ESPHome's `esp32_ble`, so any ESP32 variant that ESPHome supports with
+BLE works.
+
+| Variant | Status |
+| --- | --- |
+| ESP32-C6 | ✅ CI-tested and verified on real hardware |
+| ESP32 (classic) | ✅ CI-tested |
+| ESP32-C3 / ESP32-S3 | ✅ Expected to work (same RISC-V/Xtensa code paths as above) |
+| ESP32-H2 | ⚠️ Untested. Has BLE but no WiFi — the config needs OpenThread or no network at all |
+| ESP32-P4 | ⚠️ Untested. No own radio; BLE only via ESP-Hosted co-processor (code paths present) |
+| ESP32-S2 | ❌ Not possible — the chip has no Bluetooth (rejected at config validation) |
+
+Use the `esp-idf` framework; it is required on the C6 and recommended
+everywhere else.
 
 ## Configuration
 
