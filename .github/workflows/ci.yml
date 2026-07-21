@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: ["**"]  # tags are handled by release.yml
     paths:
       - "components/**"
       - "example.yaml"
