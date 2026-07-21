@@ -20,12 +20,13 @@ CONF_SENSORS = "sensors"
 CONF_BINARY_SENSORS = "binary_sensors"
 CONF_TEXT_SENSORS = "text_sensors"
 CONF_NAME_PLACEMENT = "name_placement"
+CONF_ENCRYPTION_KEY = "encryption_key"
 
 _LOGGER = logging.getLogger(__name__)
 CONF_MIN_INTERVAL = "min_interval"
 CONF_MAX_INTERVAL = "max_interval"
 
-BTHOME_CPP_REPOSITORY = "https://github.com/mvoss96/bthome-cpp.git#v0.1.0"
+BTHOME_CPP_REPOSITORY = "https://github.com/mvoss96/bthome-cpp.git#v0.2.0"
 
 # Maps the user-facing type name (== bthome-cpp factory name) to the C++ argument
 # type of the factory. "float" factories are passed through directly; integer
@@ -144,6 +145,18 @@ TEXT_SENSOR_SCHEMA = cv.Schema(
 )
 
 
+def validate_encryption_key(value):
+    # Same format Home Assistant asks for when adding an encrypted BTHome
+    # device: the 16-byte AES key as 32 hex characters.
+    value = cv.string_strict(value)
+    if len(value) != 32 or any(c not in "0123456789abcdefABCDEF" for c in value):
+        raise cv.Invalid(
+            "encryption_key must be 32 hexadecimal characters (16 bytes), "
+            'e.g. "231d39c1d7cc1ab1aee224cd096db932"'
+        )
+    return value.lower()
+
+
 def validate_config(config):
     if config[CONF_MIN_INTERVAL] > config[CONF_MAX_INTERVAL]:
         raise cv.Invalid("min_interval must be <= max_interval")
@@ -154,6 +167,12 @@ def validate_config(config):
     ):
         raise cv.Invalid(
             "At least one of sensors, binary_sensors or text_sensors is required"
+        )
+    if CONF_ENCRYPTION_KEY in config and config[CONF_NAME_PLACEMENT] == "advertisement":
+        raise cv.Invalid(
+            "encryption_key cannot be combined with name_placement: advertisement: "
+            "the 8-byte encryption overhead plus an in-advertisement name leaves "
+            "no room for measurements. Use name_placement: scan_response."
         )
     if config[CONF_NAME_PLACEMENT] == "advertisement" and config[CONF_TEXT_SENSORS]:
         _LOGGER.warning(
@@ -179,6 +198,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_NAME_PLACEMENT, default="scan_response"): cv.one_of(
                 "scan_response", "advertisement", lower=True
             ),
+            cv.Optional(CONF_ENCRYPTION_KEY): validate_encryption_key,
             cv.Optional(CONF_MIN_INTERVAL, default="100ms"): cv.All(
                 cv.positive_time_period_milliseconds,
                 cv.Range(
@@ -244,6 +264,10 @@ async def to_code(config):
     cg.add(
         var.set_name_in_advertisement(config[CONF_NAME_PLACEMENT] == "advertisement")
     )
+
+    if CONF_ENCRYPTION_KEY in config:
+        cg.add(var.set_encryption_key(list(bytes.fromhex(config[CONF_ENCRYPTION_KEY]))))
+        cg.add_define("USE_BTHOME_ENCRYPTION")
 
     # TX power control only available on native Bluetooth (not ESP-Hosted)
     if CONF_TX_POWER in config:
