@@ -46,7 +46,7 @@ BLE works.
 | --- | --- |
 | ESP32-C6 | ✅ CI-tested and verified on real hardware |
 | ESP32 (classic) | ✅ CI-tested |
-| ESP32-C3 / ESP32-S3 | ✅ Expected to work (same RISC-V/Xtensa code paths as above) |
+| ESP32-C3 / ESP32-C5 / ESP32-S3 | ✅ Expected to work (same RISC-V/Xtensa code paths as above) |
 | ESP32-H2 | ⚠️ Untested. Has BLE but no WiFi — the config needs OpenThread or no network at all |
 | ESP32-P4 | ⚠️ Untested. No own radio; BLE only via ESP-Hosted co-processor (code paths present) |
 | ESP32-S2 | ❌ Not possible — the chip has no Bluetooth (rejected at config validation) |
