@@ -59,7 +59,7 @@ everywhere else.
 | Option | Default | Description |
 | --- | --- | --- |
 | `interval` | `10s` | Minimum time between payload updates/rotations (≥ 100ms). |
-| `name` | `true` | Advertise the device name. `true` uses the ESPHome device name, a string overrides it, `false` disables. Names longer than 10 chars are truncated (Shortened Local Name). |
+| `name` | `true` | Advertise the device name in the scan response. `true` uses the ESPHome device name, a string overrides it, `false` disables. Names longer than 29 chars are truncated (Shortened Local Name). |
 | `min_interval` / `max_interval` | `100ms` | BLE advertising interval range (20ms–10.24s). |
 | `tx_power` | `3dBm` | BLE TX power (not available with `esp32_hosted`). |
 | `sensors` | — | List of `{type, source}`: BTHome measurement type + id of an existing `sensor`. |
@@ -75,10 +75,9 @@ Supported `type` values map 1:1 to the bthome-cpp factory names, e.g.
 ### Text length limits
 
 BLE advertisements are small: after protocol overhead, a text value can use at
-most **19 bytes** — and advertising a name eats into that (e.g. **7 bytes**
-with a full 10-char name). Longer values are truncated at a UTF-8 character
-boundary, with a one-time warning in the log. Disable the name (`name: false`)
-or keep it short if you need longer texts.
+most **19 bytes**. Longer values are truncated at a UTF-8 character boundary,
+with a one-time warning in the log. (The device name lives in the separate
+scan response, so it does not reduce this budget.)
 
 Only one text sensor is supported: Home Assistant cannot tell multiple BTHome
 text measurements apart unless they arrive in the same advertisement, which
@@ -93,6 +92,11 @@ two text entries never fit into.
 - Every `interval`, the current sensor states are packed into a BTHome v2
   service-data payload (service UUID `0xFCD2`) with an auto-incrementing
   `packet_id`.
+- The device name is sent in the **scan response** (its own 31 bytes), so the
+  full advertisement stays available for sensor data. Active scanners — Home
+  Assistant and its Bluetooth proxies by default — pick it up automatically;
+  purely passive scanners see the data but no name. Device identity is based
+  on the MAC address either way, never on the name.
 - If not all values fit into the 31-byte advertisement, the component
   round-robins over the configured entries: each payload continues where the
   previous one stopped, so all values are broadcast over successive intervals.

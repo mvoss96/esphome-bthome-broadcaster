@@ -15,10 +15,28 @@ namespace esphome::bthome_broadcaster {
 static const char *const TAG = "bthome_broadcaster";
 
 void BTHomeBroadcaster::setup() {
+  // The device name goes into the scan response (its own 31 bytes), never
+  // into the advertisement itself — the full data budget stays available.
+  if (this->name_enabled_) {
+    std::string name = this->local_name_.empty() ? App.get_name() : this->local_name_;
+    bool complete = true;
+    if (name.size() > kMaxNameLen) {
+      name.resize(kMaxNameLen);
+      complete = false;
+    }
+    if (!name.empty()) {
+      this->scan_rsp_data_[0] = static_cast<uint8_t>(1 + name.size());
+      this->scan_rsp_data_[1] = complete ? 0x09 : 0x08;  // (Shortened) Local Name AD type.
+      memcpy(&this->scan_rsp_data_[2], name.data(), name.size());
+      this->scan_rsp_size_ = 2 + name.size();
+    }
+  }
+
   this->adv_params_ = {
       .adv_int_min = static_cast<uint16_t>(this->min_interval_ / 0.625f),
       .adv_int_max = static_cast<uint16_t>(this->max_interval_ / 0.625f),
-      .adv_type = ADV_TYPE_NONCONN_IND,
+      // A scan response is only sent for scannable advertisements.
+      .adv_type = (this->scan_rsp_size_ > 0) ? ADV_TYPE_SCAN_IND : ADV_TYPE_NONCONN_IND,
       .own_addr_type = BLE_ADDR_TYPE_PUBLIC,
       .peer_addr = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
       .peer_addr_type = BLE_ADDR_TYPE_PUBLIC,
@@ -51,7 +69,7 @@ void BTHomeBroadcaster::dump_config() {
                 "BTHome Broadcaster:\n"
                 "  Interval: %" PRIu32 "ms\n"
                 "  Sensors: %u, Binary Sensors: %u, Text Sensors: %u\n"
-                "  Advertise name: %s",
+                "  Name (scan response): %s",
                 this->advertise_interval_, static_cast<unsigned>(num_sensors),
                 static_cast<unsigned>(num_binary_sensors), static_cast<unsigned>(num_text_sensors),
                 this->name_enabled_ ? (this->local_name_.empty() ? "(device name)" : this->local_name_.c_str())
@@ -106,23 +124,6 @@ void BTHomeBroadcaster::build_next_payload_() {
     return;
   }
 
-  const char *name = nullptr;
-  bool complete_name = true;
-  std::string name_buf;
-  if (this->name_enabled_) {
-    name_buf = this->local_name_.empty() ? App.get_name() : this->local_name_;
-    if (name_buf.size() > kMaxNameLen) {
-      name_buf.resize(kMaxNameLen);
-      complete_name = false;
-    }
-    if (!name_buf.empty()) {
-      name = name_buf.c_str();
-    }
-  }
-  const size_t name_bytes = (name != nullptr) ? 2 + name_buf.size() : 0;
-  // Maximum size of the BTHome service-data AD element for this advertisement.
-  const size_t budget = kMaxAdvBytes - kFlagsBytes - name_bytes;
-
   BTHome::Packet<kPacketCapacity> packet;
   packet.add(BTHome::packet_id(this->packet_id_));
   const size_t base_size = packet.size();  // Header + packet_id bytes.
@@ -135,7 +136,7 @@ void BTHomeBroadcaster::build_next_payload_() {
     // binary sensors, matching measurement_for_'s index order).
     if (this->text_sensor_ != nullptr && index == total - 1) {
       if (this->text_sensor_->has_state()) {
-        if (!this->add_text_(packet, budget, base_size)) {
+        if (!this->add_text_(packet, base_size)) {
           break;  // Doesn't fit next to the current entries — it always fits in a fresh packet.
         }
         added_any = true;
@@ -146,7 +147,7 @@ void BTHomeBroadcaster::build_next_payload_() {
 #endif
     BTHome::Measurement m{};
     if (this->measurement_for_(index, m)) {
-      if (packet.size() + 1 + m.len > budget) {
+      if (packet.size() + 1 + m.len > kPacketCapacity) {
         break;  // Packet full — rotation continues here on the next build.
       }
       packet.add(m);
@@ -161,7 +162,7 @@ void BTHomeBroadcaster::build_next_payload_() {
   }
   this->packet_id_++;
 
-  const int size = BTHome::build_advertising(packet, this->adv_data_, sizeof(this->adv_data_), name, complete_name);
+  const int size = BTHome::build_advertising(packet, this->adv_data_, sizeof(this->adv_data_), nullptr, true);
   if (size < 0) {
     ESP_LOGW(TAG, "Failed to build advertisement payload");
     return;
@@ -170,11 +171,11 @@ void BTHomeBroadcaster::build_next_payload_() {
 }
 
 #ifdef USE_TEXT_SENSOR
-bool BTHomeBroadcaster::add_text_(BTHome::Packet<kPacketCapacity> &packet, size_t budget, size_t base_size) {
+bool BTHomeBroadcaster::add_text_(BTHome::Packet<kPacketCapacity> &packet, size_t base_size) {
   // Truncate to what fits in an otherwise-empty packet (never more than the
   // library's 24-byte limit): the text must always be sendable, otherwise the
   // rotation could stall on an entry that can never fit.
-  const size_t max_len = std::min<size_t>(BTHome::VarMeasurement::kMaxBytes, budget - base_size - 2);
+  const size_t max_len = std::min<size_t>(BTHome::VarMeasurement::kMaxBytes, kPacketCapacity - base_size - 2);
   const std::string &state = this->text_sensor_->state;
   size_t len = state.size();
   if (len > max_len) {
@@ -196,7 +197,7 @@ bool BTHomeBroadcaster::add_text_(BTHome::Packet<kPacketCapacity> &packet, size_
   buf[len] = '\0';
   const BTHome::VarMeasurement text = BTHome::text(buf);
 
-  if (packet.size() + 2 + text.len > budget) {
+  if (packet.size() + 2 + text.len > kPacketCapacity) {
     return false;
   }
   packet.add(text);
@@ -236,6 +237,21 @@ void BTHomeBroadcaster::gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_
   esp_err_t err;
   switch (event) {
     case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT: {
+      if (this->scan_rsp_size_ > 0) {
+        // Advertising starts once the scan response is set, too.
+        err = esp_ble_gap_config_scan_rsp_data_raw(this->scan_rsp_data_, this->scan_rsp_size_);
+        if (err != ESP_OK) {
+          ESP_LOGE(TAG, "esp_ble_gap_config_scan_rsp_data_raw failed: %s", esp_err_to_name(err));
+        }
+        break;
+      }
+      err = esp_ble_gap_start_advertising(&this->adv_params_);
+      if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ble_gap_start_advertising failed: %s", esp_err_to_name(err));
+      }
+      break;
+    }
+    case ESP_GAP_BLE_SCAN_RSP_DATA_RAW_SET_COMPLETE_EVT: {
       err = esp_ble_gap_start_advertising(&this->adv_params_);
       if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ble_gap_start_advertising failed: %s", esp_err_to_name(err));

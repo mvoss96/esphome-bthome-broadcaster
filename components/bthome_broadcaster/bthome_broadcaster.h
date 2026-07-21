@@ -71,19 +71,20 @@ class BTHomeBroadcaster final : public Component {
   void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
 
  protected:
-  // Raw BLE advertisements are at most 31 bytes: 3 bytes Flags AD, the rest is
-  // shared between the BTHome service-data AD element and the optional name AD.
+  // Raw BLE advertisements are at most 31 bytes: 3 bytes Flags AD, the rest
+  // belongs to the BTHome service-data AD element. The device name lives in
+  // the separate 31-byte scan response, so it never eats into the data budget.
   static constexpr size_t kMaxAdvBytes = 31;
   static constexpr size_t kFlagsBytes = 3;
   static constexpr size_t kPacketCapacity = kMaxAdvBytes - kFlagsBytes;
-  static constexpr size_t kMaxNameLen = 10;
+  static constexpr size_t kMaxNameLen = kMaxAdvBytes - 2;  // Scan response minus AD overhead.
 
   void on_advertise_();
   void build_next_payload_();
   size_t entry_count_() const;
   bool measurement_for_(size_t index, BTHome::Measurement &out) const;
 #ifdef USE_TEXT_SENSOR
-  bool add_text_(BTHome::Packet<kPacketCapacity> &packet, size_t budget, size_t base_size);
+  bool add_text_(BTHome::Packet<kPacketCapacity> &packet, size_t base_size);
 #endif
 
 #ifdef USE_SENSOR
@@ -116,6 +117,8 @@ class BTHomeBroadcaster final : public Component {
 
   uint8_t adv_data_[kMaxAdvBytes];
   size_t adv_size_{0};
+  uint8_t scan_rsp_data_[kMaxAdvBytes];
+  size_t scan_rsp_size_{0};
   size_t next_index_{0};
   uint8_t packet_id_{0};
   uint32_t last_build_ms_{0};
