@@ -15,16 +15,24 @@ namespace esphome::bthome_broadcaster {
 static const char *const TAG = "bthome_broadcaster";
 
 void BTHomeBroadcaster::setup() {
-  // The device name goes into the scan response (its own 31 bytes), never
-  // into the advertisement itself — the full data budget stays available.
+  // By default the device name goes into the scan response (its own 31 bytes),
+  // keeping the full advertisement budget for data. With name_placement:
+  // advertisement it goes into the advertisement instead, visible to passive
+  // scanners at the cost of measurement space.
   if (this->name_enabled_) {
     std::string name = this->local_name_.empty() ? App.get_name() : this->local_name_;
-    bool complete = true;
-    if (name.size() > kMaxNameLen) {
-      name.resize(kMaxNameLen);
-      complete = false;
-    }
-    if (!name.empty()) {
+    if (this->name_in_advertisement_) {
+      if (name.size() > kMaxNameLenAdv) {
+        name.resize(kMaxNameLenAdv);
+        this->adv_name_complete_ = false;
+      }
+      this->adv_name_ = name;
+    } else if (!name.empty()) {
+      bool complete = true;
+      if (name.size() > kMaxNameLenScanRsp) {
+        name.resize(kMaxNameLenScanRsp);
+        complete = false;
+      }
       this->scan_rsp_data_[0] = static_cast<uint8_t>(1 + name.size());
       this->scan_rsp_data_[1] = complete ? 0x09 : 0x08;  // (Shortened) Local Name AD type.
       memcpy(&this->scan_rsp_data_[2], name.data(), name.size());
@@ -69,9 +77,10 @@ void BTHomeBroadcaster::dump_config() {
                 "BTHome Broadcaster:\n"
                 "  Interval: %" PRIu32 "ms\n"
                 "  Sensors: %u, Binary Sensors: %u, Text Sensors: %u\n"
-                "  Name (scan response): %s",
+                "  Name (%s): %s",
                 this->advertise_interval_, static_cast<unsigned>(num_sensors),
                 static_cast<unsigned>(num_binary_sensors), static_cast<unsigned>(num_text_sensors),
+                this->name_in_advertisement_ ? "advertisement" : "scan response",
                 this->name_enabled_ ? (this->local_name_.empty() ? "(device name)" : this->local_name_.c_str())
                                     : "no");
 }
@@ -124,6 +133,11 @@ void BTHomeBroadcaster::build_next_payload_() {
     return;
   }
 
+  const char *name = this->adv_name_.empty() ? nullptr : this->adv_name_.c_str();
+  const size_t name_bytes = (name != nullptr) ? 2 + this->adv_name_.size() : 0;
+  // Maximum size of the BTHome service-data AD element for this advertisement.
+  const size_t budget = kPacketCapacity - name_bytes;
+
   BTHome::Packet<kPacketCapacity> packet;
   packet.add(BTHome::packet_id(this->packet_id_));
   const size_t base_size = packet.size();  // Header + packet_id bytes.
@@ -136,7 +150,7 @@ void BTHomeBroadcaster::build_next_payload_() {
     // binary sensors, matching measurement_for_'s index order).
     if (this->text_sensor_ != nullptr && index == total - 1) {
       if (this->text_sensor_->has_state()) {
-        if (!this->add_text_(packet, base_size)) {
+        if (!this->add_text_(packet, budget, base_size)) {
           break;  // Doesn't fit next to the current entries — it always fits in a fresh packet.
         }
         added_any = true;
@@ -147,7 +161,7 @@ void BTHomeBroadcaster::build_next_payload_() {
 #endif
     BTHome::Measurement m{};
     if (this->measurement_for_(index, m)) {
-      if (packet.size() + 1 + m.len > kPacketCapacity) {
+      if (packet.size() + 1 + m.len > budget) {
         break;  // Packet full — rotation continues here on the next build.
       }
       packet.add(m);
@@ -162,7 +176,8 @@ void BTHomeBroadcaster::build_next_payload_() {
   }
   this->packet_id_++;
 
-  const int size = BTHome::build_advertising(packet, this->adv_data_, sizeof(this->adv_data_), nullptr, true);
+  const int size =
+      BTHome::build_advertising(packet, this->adv_data_, sizeof(this->adv_data_), name, this->adv_name_complete_);
   if (size < 0) {
     ESP_LOGW(TAG, "Failed to build advertisement payload");
     return;
@@ -171,11 +186,11 @@ void BTHomeBroadcaster::build_next_payload_() {
 }
 
 #ifdef USE_TEXT_SENSOR
-bool BTHomeBroadcaster::add_text_(BTHome::Packet<kPacketCapacity> &packet, size_t base_size) {
+bool BTHomeBroadcaster::add_text_(BTHome::Packet<kPacketCapacity> &packet, size_t budget, size_t base_size) {
   // Truncate to what fits in an otherwise-empty packet (never more than the
   // library's 24-byte limit): the text must always be sendable, otherwise the
   // rotation could stall on an entry that can never fit.
-  const size_t max_len = std::min<size_t>(BTHome::VarMeasurement::kMaxBytes, kPacketCapacity - base_size - 2);
+  const size_t max_len = std::min<size_t>(BTHome::VarMeasurement::kMaxBytes, budget - base_size - 2);
   const std::string &state = this->text_sensor_->state;
   size_t len = state.size();
   if (len > max_len) {
@@ -197,7 +212,7 @@ bool BTHomeBroadcaster::add_text_(BTHome::Packet<kPacketCapacity> &packet, size_
   buf[len] = '\0';
   const BTHome::VarMeasurement text = BTHome::text(buf);
 
-  if (packet.size() + 2 + text.len > kPacketCapacity) {
+  if (packet.size() + 2 + text.len > budget) {
     return false;
   }
   packet.add(text);

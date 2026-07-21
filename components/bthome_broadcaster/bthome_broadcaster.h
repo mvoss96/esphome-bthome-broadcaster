@@ -50,6 +50,7 @@ class BTHomeBroadcaster final : public Component {
   void set_max_interval(uint16_t val) { this->max_interval_ = val; }
   void set_name_enabled(bool enabled) { this->name_enabled_ = enabled; }
   void set_local_name(const std::string &name) { this->local_name_ = name; }
+  void set_name_in_advertisement(bool val) { this->name_in_advertisement_ = val; }
 #ifndef CONFIG_ESP_HOSTED_ENABLE_BT_BLUEDROID
   void set_tx_power(esp_power_level_t val) { this->tx_power_ = val; }
 #endif
@@ -77,14 +78,15 @@ class BTHomeBroadcaster final : public Component {
   static constexpr size_t kMaxAdvBytes = 31;
   static constexpr size_t kFlagsBytes = 3;
   static constexpr size_t kPacketCapacity = kMaxAdvBytes - kFlagsBytes;
-  static constexpr size_t kMaxNameLen = kMaxAdvBytes - 2;  // Scan response minus AD overhead.
+  static constexpr size_t kMaxNameLenScanRsp = kMaxAdvBytes - 2;  // Scan response minus AD overhead.
+  static constexpr size_t kMaxNameLenAdv = 10;  // Keeps room for measurements in the advertisement.
 
   void on_advertise_();
   void build_next_payload_();
   size_t entry_count_() const;
   bool measurement_for_(size_t index, BTHome::Measurement &out) const;
 #ifdef USE_TEXT_SENSOR
-  bool add_text_(BTHome::Packet<kPacketCapacity> &packet, size_t base_size);
+  bool add_text_(BTHome::Packet<kPacketCapacity> &packet, size_t budget, size_t base_size);
 #endif
 
 #ifdef USE_SENSOR
@@ -110,7 +112,10 @@ class BTHomeBroadcaster final : public Component {
   uint16_t min_interval_{100};
   uint16_t max_interval_{100};
   bool name_enabled_{true};
+  bool name_in_advertisement_{false};
   std::string local_name_;
+  std::string adv_name_;  // Non-empty only with name_placement: advertisement.
+  bool adv_name_complete_{true};
 #ifndef CONFIG_ESP_HOSTED_ENABLE_BT_BLUEDROID
   esp_power_level_t tx_power_{};
 #endif

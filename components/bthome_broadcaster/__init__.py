@@ -1,3 +1,5 @@
+import logging
+
 import esphome.codegen as cg
 from esphome.components import binary_sensor, esp32_ble, sensor, text_sensor
 from esphome.components.esp32 import request_bluetooth
@@ -17,6 +19,9 @@ CONF_SOURCE = "source"
 CONF_SENSORS = "sensors"
 CONF_BINARY_SENSORS = "binary_sensors"
 CONF_TEXT_SENSORS = "text_sensors"
+CONF_NAME_PLACEMENT = "name_placement"
+
+_LOGGER = logging.getLogger(__name__)
 CONF_MIN_INTERVAL = "min_interval"
 CONF_MAX_INTERVAL = "max_interval"
 
@@ -150,6 +155,12 @@ def validate_config(config):
         raise cv.Invalid(
             "At least one of sensors, binary_sensors or text_sensors is required"
         )
+    if config[CONF_NAME_PLACEMENT] == "advertisement" and config[CONF_TEXT_SENSORS]:
+        _LOGGER.warning(
+            "name_placement: advertisement shrinks the per-packet data budget; "
+            "text values will be truncated to as few as 7 bytes. Use "
+            "name_placement: scan_response for the full 19 bytes."
+        )
     return config
 
 
@@ -163,6 +174,11 @@ CONFIG_SCHEMA = cv.All(
                 cv.Range(min=TimePeriod(milliseconds=100)),
             ),
             cv.Optional(CONF_NAME, default=True): cv.Any(cv.boolean, cv.string_strict),
+            # scan_response keeps the full advertisement for sensor data;
+            # advertisement makes the name visible to passive scanners.
+            cv.Optional(CONF_NAME_PLACEMENT, default="scan_response"): cv.one_of(
+                "scan_response", "advertisement", lower=True
+            ),
             cv.Optional(CONF_MIN_INTERVAL, default="100ms"): cv.All(
                 cv.positive_time_period_milliseconds,
                 cv.Range(
@@ -225,6 +241,9 @@ async def to_code(config):
     else:
         cg.add(var.set_name_enabled(True))
         cg.add(var.set_local_name(name))
+    cg.add(
+        var.set_name_in_advertisement(config[CONF_NAME_PLACEMENT] == "advertisement")
+    )
 
     # TX power control only available on native Bluetooth (not ESP-Hosted)
     if CONF_TX_POWER in config:
