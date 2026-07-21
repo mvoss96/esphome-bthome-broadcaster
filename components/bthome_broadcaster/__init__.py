@@ -1,5 +1,7 @@
+import logging
+
 import esphome.codegen as cg
-from esphome.components import binary_sensor, esp32_ble, sensor
+from esphome.components import binary_sensor, esp32_ble, sensor, text_sensor
 from esphome.components.esp32 import request_bluetooth
 from esphome.components.esp32_ble import CONF_BLE_ID
 import esphome.config_validation as cv
@@ -16,6 +18,10 @@ BTHomeBroadcaster = bthome_broadcaster_ns.class_("BTHomeBroadcaster", cg.Compone
 CONF_SOURCE = "source"
 CONF_SENSORS = "sensors"
 CONF_BINARY_SENSORS = "binary_sensors"
+CONF_TEXT_SENSORS = "text_sensors"
+CONF_NAME_PLACEMENT = "name_placement"
+
+_LOGGER = logging.getLogger(__name__)
 CONF_MIN_INTERVAL = "min_interval"
 CONF_MAX_INTERVAL = "max_interval"
 
@@ -130,12 +136,31 @@ BINARY_SENSOR_SCHEMA = cv.Schema(
     }
 )
 
+# No type field: BTHome has exactly one text measurement (0x53).
+TEXT_SENSOR_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_SOURCE): cv.use_id(text_sensor.TextSensor),
+    }
+)
+
 
 def validate_config(config):
     if config[CONF_MIN_INTERVAL] > config[CONF_MAX_INTERVAL]:
         raise cv.Invalid("min_interval must be <= max_interval")
-    if not config[CONF_SENSORS] and not config[CONF_BINARY_SENSORS]:
-        raise cv.Invalid("At least one of sensors or binary_sensors is required")
+    if (
+        not config[CONF_SENSORS]
+        and not config[CONF_BINARY_SENSORS]
+        and not config[CONF_TEXT_SENSORS]
+    ):
+        raise cv.Invalid(
+            "At least one of sensors, binary_sensors or text_sensors is required"
+        )
+    if config[CONF_NAME_PLACEMENT] == "advertisement" and config[CONF_TEXT_SENSORS]:
+        _LOGGER.warning(
+            "name_placement: advertisement shrinks the per-packet data budget; "
+            "text values will be truncated to as few as 7 bytes. Use "
+            "name_placement: scan_response for the full 19 bytes."
+        )
     return config
 
 
@@ -149,6 +174,11 @@ CONFIG_SCHEMA = cv.All(
                 cv.Range(min=TimePeriod(milliseconds=100)),
             ),
             cv.Optional(CONF_NAME, default=True): cv.Any(cv.boolean, cv.string_strict),
+            # scan_response keeps the full advertisement for sensor data;
+            # advertisement makes the name visible to passive scanners.
+            cv.Optional(CONF_NAME_PLACEMENT, default="scan_response"): cv.one_of(
+                "scan_response", "advertisement", lower=True
+            ),
             cv.Optional(CONF_MIN_INTERVAL, default="100ms"): cv.All(
                 cv.positive_time_period_milliseconds,
                 cv.Range(
@@ -169,6 +199,12 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_SENSORS, default=[]): cv.ensure_list(SENSOR_SCHEMA),
             cv.Optional(CONF_BINARY_SENSORS, default=[]): cv.ensure_list(
                 BINARY_SENSOR_SCHEMA
+            ),
+            # Only one: Home Assistant cannot distinguish multiple BTHome text
+            # measurements unless they share one advertisement, which a full
+            # text entry (up to 26 bytes) never can.
+            cv.Optional(CONF_TEXT_SENSORS, default=[]): cv.All(
+                cv.ensure_list(TEXT_SENSOR_SCHEMA), cv.Length(max=1)
             ),
         }
     ).extend(cv.COMPONENT_SCHEMA),
@@ -205,6 +241,9 @@ async def to_code(config):
     else:
         cg.add(var.set_name_enabled(True))
         cg.add(var.set_local_name(name))
+    cg.add(
+        var.set_name_in_advertisement(config[CONF_NAME_PLACEMENT] == "advertisement")
+    )
 
     # TX power control only available on native Bluetooth (not ESP-Hosted)
     if CONF_TX_POWER in config:
@@ -221,6 +260,10 @@ async def to_code(config):
                 source, cg.RawExpression(f"BTHome::{conf[CONF_TYPE]}")
             )
         )
+
+    for conf in config[CONF_TEXT_SENSORS]:
+        source = await cg.get_variable(conf[CONF_SOURCE])
+        cg.add(var.set_text_sensor(source))
 
     cg.add_library("bthome-cpp", None, BTHOME_CPP_REPOSITORY)
     cg.add_define("USE_ESP32_BLE_UUID")

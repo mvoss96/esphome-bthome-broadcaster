@@ -1,7 +1,8 @@
 # esphome-bthome-broadcaster
 
-An external [ESPHome](https://esphome.io) component that broadcasts sensor and
-binary sensor values as [BTHome v2](https://bthome.io) BLE advertisements.
+An external [ESPHome](https://esphome.io) component that broadcasts sensor,
+binary sensor, and text sensor values as [BTHome v2](https://bthome.io) BLE
+advertisements.
 Devices show up automatically in Home Assistant via the native BTHome
 integration — no WiFi/API connection required for the sensor data path.
 
@@ -45,7 +46,7 @@ BLE works.
 | --- | --- |
 | ESP32-C6 | ✅ CI-tested and verified on real hardware |
 | ESP32 (classic) | ✅ CI-tested |
-| ESP32-C3 / ESP32-S3 | ✅ Expected to work (same RISC-V/Xtensa code paths as above) |
+| ESP32-C3 / ESP32-C5 / ESP32-S3 | ✅ Expected to work (same RISC-V/Xtensa code paths as above) |
 | ESP32-H2 | ⚠️ Untested. Has BLE but no WiFi — the config needs OpenThread or no network at all |
 | ESP32-P4 | ⚠️ Untested. No own radio; BLE only via ESP-Hosted co-processor (code paths present) |
 | ESP32-S2 | ❌ Not possible — the chip has no Bluetooth (rejected at config validation) |
@@ -58,17 +59,32 @@ everywhere else.
 | Option | Default | Description |
 | --- | --- | --- |
 | `interval` | `10s` | Minimum time between payload updates/rotations (≥ 100ms). |
-| `name` | `true` | Advertise the device name. `true` uses the ESPHome device name, a string overrides it, `false` disables. Names longer than 10 chars are truncated (Shortened Local Name). |
+| `name` | `true` | Advertise the device name. `true` uses the ESPHome device name, a string overrides it, `false` disables. |
+| `name_placement` | `scan_response` | Where the name is sent. `scan_response` (own 31 bytes, max 29 chars) keeps the full advertisement for sensor data but is invisible to purely passive scanners. `advertisement` (max 10 chars) is visible to passive scanners but shrinks the per-packet data budget. Over-long names are truncated (Shortened Local Name). |
 | `min_interval` / `max_interval` | `100ms` | BLE advertising interval range (20ms–10.24s). |
 | `tx_power` | `3dBm` | BLE TX power (not available with `esp32_hosted`). |
 | `sensors` | — | List of `{type, source}`: BTHome measurement type + id of an existing `sensor`. |
 | `binary_sensors` | — | List of `{type, source}`: BTHome binary type + id of an existing `binary_sensor`. |
+| `text_sensors` | — | At most one `{source}`: id of an existing `text_sensor`, broadcast as BTHome text (`0x53`). See below for length limits. |
 
 Supported `type` values map 1:1 to the bthome-cpp factory names, e.g.
 `temperature`, `humidity`, `pressure`, `battery`, `voltage`, `co2`, `power`,
 `energy`, `illuminance`, `pm2_5`, `distance_mm`, … for sensors and `motion`,
 `door`, `window`, `occupancy`, `smoke`, `opening`, … for binary sensors. See
 [`__init__.py`](components/bthome_broadcaster/__init__.py) for the full lists.
+
+### Text length limits
+
+BLE advertisements are small: after protocol overhead, a text value can use at
+most **19 bytes**. Longer values are truncated at a UTF-8 character boundary,
+with a one-time warning in the log. With the default
+`name_placement: scan_response` the name does not reduce this budget; with
+`name_placement: advertisement` the budget shrinks to `17 − name length`
+(as few as **7 bytes** with a full 10-char name).
+
+Only one text sensor is supported: Home Assistant cannot tell multiple BTHome
+text measurements apart unless they arrive in the same advertisement, which
+two text entries never fit into.
 
 ## How it works
 
@@ -79,6 +95,12 @@ Supported `type` values map 1:1 to the bthome-cpp factory names, e.g.
 - Every `interval`, the current sensor states are packed into a BTHome v2
   service-data payload (service UUID `0xFCD2`) with an auto-incrementing
   `packet_id`.
+- By default the device name is sent in the **scan response** (its own 31
+  bytes), so the full advertisement stays available for sensor data. Active
+  scanners — Home Assistant and its Bluetooth proxies by default — pick it up
+  automatically; purely passive scanners see the data but no name. Device
+  identity is based on the MAC address either way, never on the name. Use
+  `name_placement: advertisement` if passive scanners must see the name.
 - If not all values fit into the 31-byte advertisement, the component
   round-robins over the configured entries: each payload continues where the
   previous one stopped, so all values are broadcast over successive intervals.
@@ -89,6 +111,7 @@ Supported `type` values map 1:1 to the bthome-cpp factory names, e.g.
 
 - Encryption (AES-CCM) — planned once available in bthome-cpp.
 - Button/dimmer events and trigger-based devices.
+- Multiple text sensors (see above).
 - nRF52/Zephyr targets (ESP32 family only).
 
 ## License
