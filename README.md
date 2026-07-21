@@ -19,7 +19,7 @@ Requires **ESPHome ≥ 2026.7.0**.
 
 ```yaml
 external_components:
-  - source: github://mvoss96/esphome-bthome-broadcaster@v0.2.0
+  - source: github://mvoss96/esphome-bthome-broadcaster@v0.3.0
     components: [bthome_broadcaster]
 
 esp32_ble:
