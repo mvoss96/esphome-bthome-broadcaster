@@ -101,6 +101,9 @@ two text entries never fit into.
   automatically; purely passive scanners see the data but no name. Device
   identity is based on the MAC address either way, never on the name. Use
   `name_placement: advertisement` if passive scanners must see the name.
+  (A one-time `Ignoring unexpected GAP event type: 5` warning at boot is
+  harmless — `esp32_ble` does not recognize the scan-response confirmation
+  event, which this component does not rely on.)
 - If not all values fit into the 31-byte advertisement, the component
   round-robins over the configured entries: each payload continues where the
   previous one stopped, so all values are broadcast over successive intervals.

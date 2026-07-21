@@ -124,6 +124,7 @@ class BTHomeBroadcaster final : public Component {
   size_t adv_size_{0};
   uint8_t scan_rsp_data_[kMaxAdvBytes];
   size_t scan_rsp_size_{0};
+  bool scan_rsp_configured_{false};
   size_t next_index_{0};
   uint8_t packet_id_{0};
   uint32_t last_build_ms_{0};

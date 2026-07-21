@@ -239,6 +239,19 @@ void BTHomeBroadcaster::on_advertise_() {
     ESP_LOGW(TAG, "esp_ble_tx_power_set failed: %s", esp_err_to_name(err));
   }
 #endif
+  // The scan response never changes, so it is configured once, BEFORE the
+  // advertising data. Bluedroid processes both sequentially; advertising then
+  // starts on the ADV_DATA_RAW_SET_COMPLETE event. (esp32_ble does not
+  // forward SCAN_RSP_DATA_RAW_SET_COMPLETE to component handlers — it logs a
+  // harmless one-time "Ignoring unexpected GAP event type: 5" instead.)
+  if (this->scan_rsp_size_ > 0 && !this->scan_rsp_configured_) {
+    err = esp_ble_gap_config_scan_rsp_data_raw(this->scan_rsp_data_, this->scan_rsp_size_);
+    if (err == ESP_OK) {
+      this->scan_rsp_configured_ = true;
+    } else {
+      ESP_LOGE(TAG, "esp_ble_gap_config_scan_rsp_data_raw failed: %s", esp_err_to_name(err));
+    }
+  }
   err = esp_ble_gap_config_adv_data_raw(this->adv_data_, this->adv_size_);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "esp_ble_gap_config_adv_data_raw failed: %s", esp_err_to_name(err));
@@ -252,21 +265,6 @@ void BTHomeBroadcaster::gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_
   esp_err_t err;
   switch (event) {
     case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT: {
-      if (this->scan_rsp_size_ > 0) {
-        // Advertising starts once the scan response is set, too.
-        err = esp_ble_gap_config_scan_rsp_data_raw(this->scan_rsp_data_, this->scan_rsp_size_);
-        if (err != ESP_OK) {
-          ESP_LOGE(TAG, "esp_ble_gap_config_scan_rsp_data_raw failed: %s", esp_err_to_name(err));
-        }
-        break;
-      }
-      err = esp_ble_gap_start_advertising(&this->adv_params_);
-      if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_ble_gap_start_advertising failed: %s", esp_err_to_name(err));
-      }
-      break;
-    }
-    case ESP_GAP_BLE_SCAN_RSP_DATA_RAW_SET_COMPLETE_EVT: {
       err = esp_ble_gap_start_advertising(&this->adv_params_);
       if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ble_gap_start_advertising failed: %s", esp_err_to_name(err));
