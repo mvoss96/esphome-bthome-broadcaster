@@ -1,0 +1,75 @@
+# Local hardware-test config: BOOT button (GPIO9) on the ESP32-C3 dev board
+# sends BTHome button events. 1x = press, 2x = double_press,
+# 3x = triple_press, hold >=1s = hold_press. Not committed.
+esphome:
+  name: bthome-c3-test
+
+esp32:
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework:
+    type: esp-idf
+
+logger:
+
+external_components:
+  - source:
+      type: local
+      path: components
+
+esp32_ble:
+
+sensor:
+  - platform: internal_temperature
+    id: cpu_temp
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO9
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    id: boot_button
+    on_multi_click:
+      - timing:
+          - ON for at most 0.4s
+          - OFF for at least 0.35s
+        then:
+          - logger.log: "BOOT: press"
+          - bthome_broadcaster.button_event:
+              event: press
+      - timing:
+          - ON for at most 0.4s
+          - OFF for at most 0.35s
+          - ON for at most 0.4s
+          - OFF for at least 0.35s
+        then:
+          - logger.log: "BOOT: double_press"
+          - bthome_broadcaster.button_event:
+              event: double_press
+      - timing:
+          - ON for at most 0.4s
+          - OFF for at most 0.35s
+          - ON for at most 0.4s
+          - OFF for at most 0.35s
+          - ON for at most 0.4s
+          - OFF for at least 0.35s
+        then:
+          - logger.log: "BOOT: triple_press"
+          - bthome_broadcaster.button_event:
+              event: triple_press
+      - timing:
+          - ON for at least 1s
+        then:
+          - logger.log: "BOOT: hold_press"
+          - bthome_broadcaster.button_event:
+              event: hold_press
+
+bthome_broadcaster:
+  interval: 10s
+  encryption_key: "231d39c1d7cc1ab1aee224cd096db932"
+  sensors:
+    - type: temperature
+      source: cpu_temp

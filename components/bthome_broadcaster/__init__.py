@@ -280,7 +280,11 @@ DIMMER_EVENT_ACTION_SCHEMA = cv.Schema(
 
 
 @automation.register_action(
-    "bthome_broadcaster.button_event", ButtonEventAction, BUTTON_EVENT_ACTION_SCHEMA
+    "bthome_broadcaster.button_event",
+    ButtonEventAction,
+    BUTTON_EVENT_ACTION_SCHEMA,
+    # play() builds and broadcasts the event packet inline before returning.
+    synchronous=True,
 )
 async def button_event_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
@@ -297,7 +301,10 @@ async def button_event_action_to_code(config, action_id, template_arg, args):
 
 
 @automation.register_action(
-    "bthome_broadcaster.dimmer_event", DimmerEventAction, DIMMER_EVENT_ACTION_SCHEMA
+    "bthome_broadcaster.dimmer_event",
+    DimmerEventAction,
+    DIMMER_EVENT_ACTION_SCHEMA,
+    synchronous=True,
 )
 async def dimmer_event_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
