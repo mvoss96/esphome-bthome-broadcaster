@@ -39,6 +39,16 @@ text_sensor:
     lambda: return {"OK"};
     update_interval: 60s
 
+# Demo: broadcast BTHome events from any automation.
+interval:
+  - interval: 60s
+    then:
+      - bthome_broadcaster.button_event:
+          event: press
+      - bthome_broadcaster.dimmer_event:
+          event: rotate_left
+          steps: 3
+
 bthome_broadcaster:
   interval: 10s
   # AES-CCM encryption; enter the same 32-hex-char key in Home Assistant when

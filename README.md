@@ -100,6 +100,41 @@ What to know:
   (both would not leave room for any measurement); the default scan-response
   name works normally.
 
+### Events
+
+Two actions broadcast BTHome events (button presses, dimmer rotation) from
+any ESPHome automation:
+
+```yaml
+binary_sensor:
+  - platform: gpio
+    pin: GPIO9
+    id: phys_button
+    on_click:
+      - bthome_broadcaster.button_event:
+          event: press           # press | double_press | triple_press | long_press |
+                                 # long_double_press | long_triple_press | hold_press
+          button_index: 1        # optional, 1-6; Home Assistant shows one
+                                 # event entity per button
+
+sensor:
+  - platform: rotary_encoder
+    # ...
+    on_clockwise:
+      - bthome_broadcaster.dimmer_event:
+          event: rotate_right    # rotate_left | rotate_right
+          steps: 1               # templatable
+```
+
+An event immediately takes over the advertisement (packet id incremented) and
+is repeated for 1.5 s — with the default `min_interval` of 100 ms that is ~15
+transmissions, and receivers deduplicate via the packet id. Afterwards the
+normal sensor rotation resumes.
+
+A device with **only** events (no sensors) is valid: it advertises the BTHome
+*trigger-based device* flag so Home Assistant knows that radio silence is
+normal, and stays quiet between events.
+
 ### Text length limits
 
 BLE advertisements are small: after protocol overhead, a text value can use at
@@ -140,7 +175,8 @@ two text entries never fit into.
 
 ## Not (yet) supported
 
-- Button/dimmer events and trigger-based devices.
+- BTHome command events (0x3B, actuator control — the library supports them,
+  ask if you need an action).
 - Multiple text sensors (see above).
 - nRF52/Zephyr targets (ESP32 family only).
 
