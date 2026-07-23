@@ -1,11 +1,19 @@
 import logging
 
+from esphome import automation
 import esphome.codegen as cg
 from esphome.components import binary_sensor, esp32_ble, sensor, text_sensor
 from esphome.components.esp32 import request_bluetooth
 from esphome.components.esp32_ble import CONF_BLE_ID
 import esphome.config_validation as cv
-from esphome.const import CONF_ID, CONF_INTERVAL, CONF_NAME, CONF_TX_POWER, CONF_TYPE
+from esphome.const import (
+    CONF_EVENT,
+    CONF_ID,
+    CONF_INTERVAL,
+    CONF_NAME,
+    CONF_TX_POWER,
+    CONF_TYPE,
+)
 from esphome.core import TimePeriod
 
 CODEOWNERS = ["@mvoss96"]
@@ -14,6 +22,8 @@ DEPENDENCIES = ["esp32"]
 
 bthome_broadcaster_ns = cg.esphome_ns.namespace("bthome_broadcaster")
 BTHomeBroadcaster = bthome_broadcaster_ns.class_("BTHomeBroadcaster", cg.Component)
+ButtonEventAction = bthome_broadcaster_ns.class_("ButtonEventAction", automation.Action)
+DimmerEventAction = bthome_broadcaster_ns.class_("DimmerEventAction", automation.Action)
 
 CONF_SOURCE = "source"
 CONF_SENSORS = "sensors"
@@ -26,7 +36,7 @@ _LOGGER = logging.getLogger(__name__)
 CONF_MIN_INTERVAL = "min_interval"
 CONF_MAX_INTERVAL = "max_interval"
 
-BTHOME_CPP_REPOSITORY = "https://github.com/mvoss96/bthome-cpp.git#v0.2.0"
+BTHOME_CPP_REPOSITORY = "https://github.com/mvoss96/bthome-cpp.git#v0.3.0"
 
 # Maps the user-facing type name (== bthome-cpp factory name) to the C++ argument
 # type of the factory. "float" factories are passed through directly; integer
@@ -160,14 +170,8 @@ def validate_encryption_key(value):
 def validate_config(config):
     if config[CONF_MIN_INTERVAL] > config[CONF_MAX_INTERVAL]:
         raise cv.Invalid("min_interval must be <= max_interval")
-    if (
-        not config[CONF_SENSORS]
-        and not config[CONF_BINARY_SENSORS]
-        and not config[CONF_TEXT_SENSORS]
-    ):
-        raise cv.Invalid(
-            "At least one of sensors, binary_sensors or text_sensors is required"
-        )
+    # No sensors required: a pure event device (only bthome_broadcaster.*_event
+    # actions in automations) broadcasts nothing between events.
     if CONF_ENCRYPTION_KEY in config and config[CONF_NAME_PLACEMENT] == "advertisement":
         raise cv.Invalid(
             "encryption_key cannot be combined with name_placement: advertisement: "
@@ -232,6 +236,89 @@ CONFIG_SCHEMA = cv.All(
 )
 
 FINAL_VALIDATE_SCHEMA = esp32_ble.validate_variant
+
+# Maps the YAML event name to the BTHome::ButtonEventType enumerator.
+BUTTON_EVENTS = {
+    "press": "Press",
+    "double_press": "DoublePress",
+    "triple_press": "TriplePress",
+    "long_press": "LongPress",
+    "long_double_press": "LongDoublePress",
+    "long_triple_press": "LongTriplePress",
+    "hold_press": "HoldPress",
+}
+
+DIMMER_EVENTS = {
+    "rotate_left": "RotateLeft",
+    "rotate_right": "RotateRight",
+}
+
+CONF_BUTTON_INDEX = "button_index"
+CONF_STEPS = "steps"
+
+# Each earlier button costs 2 padding bytes; 6 keeps the deepest index
+# broadcastable even in an encrypted packet (20-byte budget).
+MAX_BUTTON_INDEX = 6
+
+BUTTON_EVENT_ACTION_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(): cv.use_id(BTHomeBroadcaster),
+        cv.Optional(CONF_EVENT, default="press"): cv.one_of(*BUTTON_EVENTS, lower=True),
+        cv.Optional(CONF_BUTTON_INDEX, default=1): cv.int_range(
+            min=1, max=MAX_BUTTON_INDEX
+        ),
+    }
+)
+
+DIMMER_EVENT_ACTION_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(): cv.use_id(BTHomeBroadcaster),
+        cv.Required(CONF_EVENT): cv.one_of(*DIMMER_EVENTS, lower=True),
+        cv.Optional(CONF_STEPS, default=1): cv.templatable(cv.int_range(min=1, max=255)),
+    }
+)
+
+
+@automation.register_action(
+    "bthome_broadcaster.button_event",
+    ButtonEventAction,
+    BUTTON_EVENT_ACTION_SCHEMA,
+    # play() builds and broadcasts the event packet inline before returning.
+    synchronous=True,
+)
+async def button_event_action_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    parent = await cg.get_variable(config[CONF_ID])
+    cg.add(parent.set_has_events(True))
+    cg.add(
+        var.set_event(
+            cg.RawExpression(f"BTHome::ButtonEventType::{BUTTON_EVENTS[config[CONF_EVENT]]}")
+        )
+    )
+    cg.add(var.set_button_index(config[CONF_BUTTON_INDEX]))
+    return var
+
+
+@automation.register_action(
+    "bthome_broadcaster.dimmer_event",
+    DimmerEventAction,
+    DIMMER_EVENT_ACTION_SCHEMA,
+    synchronous=True,
+)
+async def dimmer_event_action_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    parent = await cg.get_variable(config[CONF_ID])
+    cg.add(parent.set_has_events(True))
+    cg.add(
+        var.set_event(
+            cg.RawExpression(f"BTHome::DimmerEventType::{DIMMER_EVENTS[config[CONF_EVENT]]}")
+        )
+    )
+    template_ = await cg.templatable(config[CONF_STEPS], args, cg.uint8)
+    cg.add(var.set_steps(template_))
+    return var
 
 
 def sensor_factory_expression(type_name: str) -> cg.RawExpression:

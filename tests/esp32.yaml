@@ -37,6 +37,17 @@ text_sensor:
     lambda: return {"long text that gets truncated"};
     update_interval: 60s
 
+# Exercises the event actions incl. multi-button padding and templated steps.
+interval:
+  - interval: 60s
+    then:
+      - bthome_broadcaster.button_event:
+          event: double_press
+          button_index: 2
+      - bthome_broadcaster.dimmer_event:
+          event: rotate_right
+          steps: !lambda return 5;
+
 bthome_broadcaster:
   interval: 10s
   name: esp32test

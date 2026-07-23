@@ -21,6 +21,11 @@ namespace esphome::bthome_broadcaster {
 static const char *const TAG = "bthome_broadcaster";
 
 void BTHomeBroadcaster::setup() {
+  // A device that only sends events advertises the BTHome trigger-based flag,
+  // so receivers know that radio silence is normal and not an outage. Mixed
+  // devices keep broadcasting periodically and stay normally monitorable.
+  this->trigger_based_ = this->has_events_ && this->entry_count_() == 0;
+
   // By default the device name goes into the scan response (its own 31 bytes),
   // keeping the full advertisement budget for data. With name_placement:
   // advertisement it goes into the advertisement instead, visible to passive
@@ -108,13 +113,15 @@ void BTHomeBroadcaster::dump_config() {
                 "  Interval: %" PRIu32 "ms\n"
                 "  Sensors: %u, Binary Sensors: %u, Text Sensors: %u\n"
                 "  Name (%s): %s\n"
-                "  Encryption: %s",
+                "  Encryption: %s\n"
+                "  Events: %s",
                 this->advertise_interval_, static_cast<unsigned>(num_sensors),
                 static_cast<unsigned>(num_binary_sensors), static_cast<unsigned>(num_text_sensors),
                 this->name_in_advertisement_ ? "advertisement" : "scan response",
                 this->name_enabled_ ? (this->local_name_.empty() ? "(device name)" : this->local_name_.c_str())
                                     : "no",
-                encrypted ? "AES-CCM" : "no");
+                encrypted ? "AES-CCM" : "no",
+                this->has_events_ ? (this->trigger_based_ ? "yes (trigger-based device)" : "yes") : "no");
 }
 
 size_t BTHomeBroadcaster::entry_count_() const {
@@ -298,7 +305,9 @@ void BTHomeBroadcaster::save_counter_if_due_() {
 
 void BTHomeBroadcaster::on_advertise_() {
   const uint32_t now = millis();
-  if (!this->has_built_ || (now - this->last_build_ms_) >= this->advertise_interval_) {
+  // An active event burst owns the advertisement; the sensor payload is
+  // rebuilt when the burst ends.
+  if (!this->event_active_ && (!this->has_built_ || (now - this->last_build_ms_) >= this->advertise_interval_)) {
     this->build_next_payload_();
     this->has_built_ = true;
     this->last_build_ms_ = now;
@@ -332,6 +341,86 @@ void BTHomeBroadcaster::on_advertise_() {
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "esp_ble_gap_config_adv_data_raw failed: %s", esp_err_to_name(err));
   }
+}
+
+template<typename AddFn> void BTHomeBroadcaster::send_event_(AddFn &&add_entries) {
+  this->packet_id_++;
+  int size = -1;
+#ifdef USE_BTHOME_ENCRYPTION
+  if (this->encrypted_) {
+    BTHome::EncryptedPacket<kPacketCapacity> packet;
+    packet.setTriggerBased(this->trigger_based_);
+    packet.add(BTHome::packet_id(this->packet_id_));
+    if (!add_entries(packet)) {
+      ESP_LOGW(TAG, "Event does not fit into the encrypted packet; dropped");
+      return;
+    }
+    size = BTHome::build_encrypted_advertising(packet, this->encryptor_, this->adv_data_, sizeof(this->adv_data_));
+    this->save_counter_if_due_();
+  } else
+#endif
+  {
+    BTHome::Packet<kPacketCapacity> packet;
+    packet.setTriggerBased(this->trigger_based_);
+    packet.add(BTHome::packet_id(this->packet_id_));
+    if (!add_entries(packet)) {
+      ESP_LOGW(TAG, "Event does not fit into the packet; dropped");
+      return;
+    }
+    const char *name = this->adv_name_.empty() ? nullptr : this->adv_name_.c_str();
+    size = BTHome::build_advertising(packet, this->adv_data_, sizeof(this->adv_data_), name, this->adv_name_complete_);
+  }
+  if (size < 0) {
+    ESP_LOGW(TAG, "Failed to build event advertisement payload");
+    return;
+  }
+  this->adv_size_ = static_cast<size_t>(size);
+  this->event_active_ = true;
+
+  // Push the event out immediately when we currently hold the advertising
+  // slot; otherwise it goes out when esp32_ble next grants it.
+  if (this->advertising_) {
+    esp_err_t err = esp_ble_gap_config_adv_data_raw(this->adv_data_, this->adv_size_);
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "esp_ble_gap_config_adv_data_raw failed: %s", esp_err_to_name(err));
+    }
+  }
+  // A follow-up event within the burst replaces packet and timeout.
+  this->set_timeout("event_burst", kEventBurstMs, [this]() { this->end_event_burst_(); });
+}
+
+void BTHomeBroadcaster::end_event_burst_() {
+  this->event_active_ = false;
+  if (this->entry_count_() == 0) {
+    // Pure event device: nothing to broadcast between events.
+    this->adv_size_ = 0;
+    if (this->advertising_) {
+      esp_ble_gap_stop_advertising();
+    }
+    return;
+  }
+  // Resume the sensor rotation right away instead of repeating the event
+  // until the next scheduled build.
+  this->has_built_ = false;
+  if (this->advertising_) {
+    this->on_advertise_();
+  }
+}
+
+void BTHomeBroadcaster::send_button_event(uint8_t button_index, BTHome::ButtonEventType event) {
+  this->send_event_([&](auto &packet) {
+    // The k-th 0x3A entry addresses button k: pad earlier buttons with None.
+    for (uint8_t i = 1; i < button_index; i++) {
+      if (!packet.add(BTHome::button_event(BTHome::ButtonEventType::None))) {
+        return false;
+      }
+    }
+    return packet.add(BTHome::button_event(event));
+  });
+}
+
+void BTHomeBroadcaster::send_dimmer_event(BTHome::DimmerEventType event, uint8_t steps) {
+  this->send_event_([&](auto &packet) { return packet.add(BTHome::dimmer_event(event, steps)); });
 }
 
 void BTHomeBroadcaster::gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {

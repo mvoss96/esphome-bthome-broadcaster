@@ -59,6 +59,13 @@ class BTHomeBroadcaster final : public Component {
 #ifdef USE_BTHOME_ENCRYPTION
   void set_encryption_key(const std::vector<uint8_t> &key);
 #endif
+  void set_has_events(bool val) { this->has_events_ = val; }
+
+  // Event actions: the event packet replaces the advertisement immediately
+  // and is repeated for kEventBurstMs (receivers dedupe via packet id),
+  // then the regular sensor rotation resumes.
+  void send_button_event(uint8_t button_index, BTHome::ButtonEventType event);
+  void send_dimmer_event(BTHome::DimmerEventType event, uint8_t steps);
 #ifndef CONFIG_ESP_HOSTED_ENABLE_BT_BLUEDROID
   void set_tx_power(esp_power_level_t val) { this->tx_power_ = val; }
 #endif
@@ -88,6 +95,9 @@ class BTHomeBroadcaster final : public Component {
   static constexpr size_t kPacketCapacity = kMaxAdvBytes - kFlagsBytes;
   static constexpr size_t kMaxNameLenScanRsp = kMaxAdvBytes - 2;  // Scan response minus AD overhead.
   static constexpr size_t kMaxNameLenAdv = 10;  // Keeps room for measurements in the advertisement.
+  // How long an event packet keeps the advertisement slot. With the default
+  // 100ms advertising interval this yields ~15 transmissions per event.
+  static constexpr uint32_t kEventBurstMs = 1500;
 
   void on_advertise_();
   void build_next_payload_();
@@ -103,6 +113,10 @@ class BTHomeBroadcaster final : public Component {
 #ifdef USE_BTHOME_ENCRYPTION
   void save_counter_if_due_();
 #endif
+  // Builds and broadcasts an event packet; add_entries(packet) appends the
+  // event measurements to either packet type.
+  template<typename AddFn> void send_event_(AddFn &&add_entries);
+  void end_event_burst_();
 
 #ifdef USE_SENSOR
   struct SensorEntry {
@@ -153,6 +167,9 @@ class BTHomeBroadcaster final : public Component {
   bool scan_rsp_configured_{false};
   size_t next_index_{0};
   uint8_t packet_id_{0};
+  bool has_events_{false};
+  bool trigger_based_{false};  // Set in setup(): events configured, no periodic entries.
+  bool event_active_{false};   // An event burst currently owns the advertisement.
   uint32_t last_build_ms_{0};
   bool has_built_{false};
   bool advertising_{false};
