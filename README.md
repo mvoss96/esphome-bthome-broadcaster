@@ -13,7 +13,7 @@ advertising goes through ESPHome's own `esp32_ble` component, so every ESP32
 variant that ESPHome supports with BLE works out of the box — including the
 **ESP32-C6** (use the `esp-idf` framework).
 
-Requires **ESPHome ≥ 2026.7.0**.
+Requires **ESPHome ≥ 2026.7.0** (checked during config validation).
 
 ## Usage
 
