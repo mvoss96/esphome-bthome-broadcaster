@@ -23,13 +23,20 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both ends of the supported range: the documented minimum catches
+        # accidental use of newer schema APIs, the floating latest catches
+        # breaking changes upstream.
+        esphome: ["==2026.7.0", ""]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - name: Install ESPHome
-        run: pip install esphome
+        run: pip install "esphome${{ matrix.esphome }}"
       - name: Validate configs
         run: |
           esphome config example.yaml
@@ -41,7 +48,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        config: [example.yaml, tests/esp32.yaml]
+        include:
+          - config: example.yaml
+            esphome: ""
+            label: latest
+          - config: tests/esp32.yaml
+            esphome: ""
+            label: latest
+          # `esphome config` never runs to_code, so codegen APIs are only
+          # covered here. This entry is what would have caught
+          # request_bluetooth(ble_42=...) becoming incompatible.
+          - config: example.yaml
+            esphome: "==2026.7.0"
+            label: min
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -52,11 +71,11 @@ jobs:
           path: |
             ~/.platformio
             ~/.cache/pip
-          key: pio-${{ runner.os }}-${{ matrix.config }}-${{ hashFiles('**/*.yaml') }}
+          key: pio-${{ runner.os }}-${{ matrix.config }}-${{ matrix.label }}-${{ hashFiles('**/*.yaml') }}
           restore-keys: |
-            pio-${{ runner.os }}-${{ matrix.config }}-
+            pio-${{ runner.os }}-${{ matrix.config }}-${{ matrix.label }}-
       - name: Install ESPHome
-        run: pip install esphome
+        run: pip install "esphome${{ matrix.esphome }}"
       - name: Compile
         run: |
           set -o pipefail
