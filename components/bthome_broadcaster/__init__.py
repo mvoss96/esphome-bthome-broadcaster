@@ -213,7 +213,10 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_NAME_PLACEMENT, default="scan_response"): cv.one_of(
                 "scan_response", "advertisement", lower=True
             ),
-            cv.Optional(CONF_ENCRYPTION_KEY): validate_encryption_key,
+            # cv.sensitive marks the key for masking in `esphome config` output
+            # and dump tooling. Without it the value is only caught by ESPHome's
+            # substring heuristic, which is removed in 2026.12.0.
+            cv.Optional(CONF_ENCRYPTION_KEY): cv.sensitive(validate_encryption_key),
             cv.Optional(CONF_MIN_INTERVAL, default="100ms"): cv.All(
                 cv.positive_time_period_milliseconds,
                 cv.Range(
