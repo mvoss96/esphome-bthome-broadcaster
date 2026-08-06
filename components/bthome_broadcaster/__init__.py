@@ -37,7 +37,7 @@ _LOGGER = logging.getLogger(__name__)
 CONF_MIN_INTERVAL = "min_interval"
 CONF_MAX_INTERVAL = "max_interval"
 
-BTHOME_CPP_REPOSITORY = "https://github.com/mvoss96/bthome-cpp.git#v0.3.2"
+BTHOME_CPP_REPOSITORY = "https://github.com/mvoss96/bthome-cpp.git#v0.5.1"
 
 # Enforced in CONFIG_SCHEMA: the README documents this, but without a check an
 # older core fails somewhere deep in codegen instead of saying so.
