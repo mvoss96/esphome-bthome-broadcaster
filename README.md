@@ -139,7 +139,10 @@ A `button_index` above 1 pads the packet with 2 bytes per preceding button.
 With `name_placement: advertisement` the deeper indices plus the name can
 exceed the 31-byte advertisement; the event is then broadcast **without the
 name** rather than not at all — receivers identify the device by MAC, and the
-name is still part of every sensor packet.
+name is still part of every sensor packet. On an events-only device there are
+no sensor packets, so a deep `button_index` there means the name is never
+advertised at all; use `name_placement: scan_response` (the default) if it
+has to be visible.
 
 ### Text length limits
 
