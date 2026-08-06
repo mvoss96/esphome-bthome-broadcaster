@@ -1,8 +1,12 @@
 name: CI
 
 on:
+  # Only main: a push to a branch with an open PR is already covered by the
+  # pull_request trigger below, and matching both ran the whole matrix twice
+  # for every push. A branch without a PR gets no CI until one is opened.
+  # Tags are handled by release.yml.
   push:
-    branches: ["**"]  # tags are handled by release.yml
+    branches: [main]
     paths:
       - "components/**"
       - "example.yaml"
@@ -66,16 +70,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      # Installed before the cache step so the resolved ESPHome version can key
+      # it: what lands in ~/.platformio is the toolchain and framework ESPHome
+      # pulls in, which changes with the ESPHome version and with nothing else
+      # in this repository.
+      - name: Install ESPHome
+        id: esphome
+        run: |
+          pip install "esphome${{ matrix.esphome }}"
+          echo "version=$(esphome version | sed 's/^Version: //')" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
-          path: |
-            ~/.platformio
-            ~/.cache/pip
-          key: pio-${{ runner.os }}-${{ matrix.config }}-${{ matrix.label }}-${{ hashFiles('**/*.yaml') }}
+          path: ~/.platformio
+          # Previously keyed on hashFiles('**/*.yaml'), so editing a test
+          # sensor missed the key. restore-keys still restored the toolchain,
+          # but every run then re-uploaded a fresh copy under a new key and
+          # pushed older entries out of the 10 GB cache limit. Keyed on the
+          # ESPHome version it is written once per release and hit afterwards.
+          key: pio-${{ runner.os }}-${{ matrix.config }}-esphome${{ steps.esphome.outputs.version }}
           restore-keys: |
-            pio-${{ runner.os }}-${{ matrix.config }}-${{ matrix.label }}-
-      - name: Install ESPHome
-        run: pip install "esphome${{ matrix.esphome }}"
+            pio-${{ runner.os }}-${{ matrix.config }}-
       - name: Compile
         run: |
           set -o pipefail
