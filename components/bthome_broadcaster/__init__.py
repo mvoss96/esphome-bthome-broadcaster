@@ -167,8 +167,8 @@ def validate_encryption_key(value):
     value = cv.string_strict(value)
     if len(value) != 32 or any(c not in "0123456789abcdefABCDEF" for c in value):
         raise cv.Invalid(
-            "encryption_key must be 32 hexadecimal characters (16 bytes), "
-            'e.g. "231d39c1d7cc1ab1aee224cd096db932"'
+            "encryption_key must be 32 hexadecimal characters (16 bytes); "
+            "generate one with `openssl rand -hex 16`"
         )
     return value.lower()
 

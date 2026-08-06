@@ -9,9 +9,10 @@ Supports optional BTHome AES-CCM encryption.
 
 Payload encoding is done by [bthome-cpp](https://github.com/mvoss96/bthome-cpp)
 (pulled in automatically as a PlatformIO library — no vendored code). BLE
-advertising goes through ESPHome's own `esp32_ble` component, so every ESP32
-variant that ESPHome supports with BLE works out of the box — including the
-**ESP32-C6** (use the `esp-idf` framework).
+advertising goes through ESPHome's own `esp32_ble` component, and the
+component itself contains no variant-specific code — verified on the
+**ESP32-C6** (use the `esp-idf` framework) and the classic ESP32, expected to
+work on the other BLE-capable variants (see [below](#supported-hardware)).
 
 Requires **ESPHome ≥ 2026.7.0** (checked during config validation).
 
@@ -40,14 +41,14 @@ See [example.yaml](example.yaml) for a complete ESP32-C6 example.
 ## Supported hardware
 
 The component contains no variant-specific code — it inherits BLE support
-from ESPHome's `esp32_ble`, so any ESP32 variant that ESPHome supports with
-BLE works.
+from ESPHome's `esp32_ble`. Only the two variants below are actually tested;
+the rest is a well-founded expectation, not a promise.
 
 | Variant | Status |
 | --- | --- |
 | ESP32-C6 | ✅ CI-tested and verified on real hardware |
 | ESP32 (classic) | ✅ CI-tested |
-| ESP32-C3 / ESP32-C5 / ESP32-S3 | ✅ Expected to work (same RISC-V/Xtensa code paths as above) |
+| ESP32-C3 / ESP32-C5 / ESP32-S3 | 🔵 Expected to work, untested (same RISC-V/Xtensa code paths as above) |
 | ESP32-H2 | ⚠️ Untested. Has BLE but no WiFi — the config needs OpenThread or no network at all |
 | ESP32-P4 | ⚠️ Untested. No own radio; BLE only via ESP-Hosted co-processor (code paths present) |
 | ESP32-S2 | ❌ Not possible — the chip has no Bluetooth (rejected at config validation) |
@@ -75,17 +76,37 @@ Supported `type` values map 1:1 to the bthome-cpp factory names, e.g.
 `door`, `window`, `occupancy`, `smoke`, `opening`, … for binary sensors. See
 [`__init__.py`](components/bthome_broadcaster/__init__.py) for the full lists.
 
+### Value precision
+
+Every ESPHome sensor state is a 32-bit `float` (24-bit mantissa), so whole
+numbers above **16,777,216** (2²⁴) cannot be represented exactly — the value
+is already rounded before this component sees it. That matters for the 32-bit
+BTHome types:
+
+| Type | Consequence |
+| --- | --- |
+| `timestamp` | A current Unix timestamp (~1.78 × 10⁹) has a resolution of roughly **128 s**. Second-accurate times are not possible through a `sensor`; use it only for coarse timestamps. |
+| `count_u32` / `count_s32` | Exact up to 16,777,216, then in steps of 2, 4, … Individual increments get lost above that. |
+| `energy_u32` / `gas_u32` / `volume_u32` | Same limit, applied to the value *after* BTHome's scaling factor (e.g. ×1000 for kWh), so it bites correspondingly earlier. |
+
+Everything else — temperatures, humidity, pressure, `count_u16`, battery, … —
+is far below the limit and unaffected.
+
 ### Encryption
 
 ```yaml
 bthome_broadcaster:
-  encryption_key: "231d39c1d7cc1ab1aee224cd096db932"  # generate your own!
+  encryption_key: !secret bthome_encryption_key
 ```
 
 Encrypts every advertisement with BTHome's AES-CCM scheme. Home Assistant asks
 for the same 32-hex-character key once when the device is added (or under
 *Settings → Devices → BTHome device → Configure* if it was added before).
-Generate a random key, e.g. with `openssl rand -hex 16`.
+
+**Generate your own key** — `openssl rand -hex 16` — and keep it in
+`secrets.yaml`. A key copied from documentation is a key everyone else has:
+anyone in radio range could then decrypt the advertisements and, worse,
+forge them.
 
 What to know:
 
