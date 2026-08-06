@@ -50,7 +50,9 @@ interval:
 
 bthome_broadcaster:
   interval: 10s
-  name: esp32test
+  # 12 bytes with a 2-byte "ö" straddling the 10-byte advertisement limit:
+  # exercises the UTF-8-safe truncation (result: "BüroSens").
+  name: "BüroSensör"
   # Exercises the name-in-advertisement code path (default is scan_response).
   name_placement: advertisement
   sensors:

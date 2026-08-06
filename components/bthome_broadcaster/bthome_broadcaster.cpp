@@ -20,6 +20,21 @@ namespace esphome::bthome_broadcaster {
 
 static const char *const TAG = "bthome_broadcaster";
 
+// Largest length <= max_bytes at which s can be cut without splitting a UTF-8
+// multi-byte sequence. Continuation bytes are 0b10xxxxxx, so as long as the
+// byte *at* the cut position is one, the cut would land inside a character
+// and has to move left. Returns s.size() when nothing needs to be removed.
+static size_t utf8_truncate_len(const std::string &s, size_t max_bytes) {
+  if (s.size() <= max_bytes) {
+    return s.size();
+  }
+  size_t len = max_bytes;
+  while (len > 0 && (static_cast<uint8_t>(s[len]) & 0xC0) == 0x80) {
+    len--;
+  }
+  return len;
+}
+
 void BTHomeBroadcaster::setup() {
   // A device that only sends events advertises the BTHome trigger-based flag,
   // so receivers know that radio silence is normal and not an outage. Mixed
@@ -33,15 +48,17 @@ void BTHomeBroadcaster::setup() {
   if (this->name_enabled_) {
     std::string name = this->local_name_.empty() ? App.get_name() : this->local_name_;
     if (this->name_in_advertisement_) {
-      if (name.size() > kMaxNameLenAdv) {
-        name.resize(kMaxNameLenAdv);
+      const size_t len = utf8_truncate_len(name, kMaxNameLenAdv);
+      if (len < name.size()) {
+        name.resize(len);
         this->adv_name_complete_ = false;
       }
       this->adv_name_ = name;
     } else if (!name.empty()) {
       bool complete = true;
-      if (name.size() > kMaxNameLenScanRsp) {
-        name.resize(kMaxNameLenScanRsp);
+      const size_t len = utf8_truncate_len(name, kMaxNameLenScanRsp);
+      if (len < name.size()) {
+        name.resize(len);
         complete = false;
       }
       this->scan_rsp_data_[0] = static_cast<uint8_t>(1 + name.size());
@@ -256,13 +273,8 @@ template<typename PacketT> bool BTHomeBroadcaster::add_text_(PacketT &packet, si
   // rotation could stall on an entry that can never fit.
   const size_t max_len = std::min<size_t>(BTHome::VarMeasurement::kMaxBytes, budget - base_size - 2);
   const std::string &state = this->text_sensor_->state;
-  size_t len = state.size();
-  if (len > max_len) {
-    len = max_len;
-    // Don't cut in the middle of a UTF-8 multi-byte character.
-    while (len > 0 && (static_cast<uint8_t>(state[len]) & 0xC0) == 0x80) {
-      len--;
-    }
+  const size_t len = utf8_truncate_len(state, max_len);
+  if (len < state.size()) {
     if (!this->text_truncation_warned_) {
       ESP_LOGW(TAG, "Text '%s' exceeds %u bytes; truncating", state.c_str(), static_cast<unsigned>(max_len));
       this->text_truncation_warned_ = true;
