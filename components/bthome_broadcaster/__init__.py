@@ -24,6 +24,7 @@ DEPENDENCIES = ["esp32"]
 bthome_broadcaster_ns = cg.esphome_ns.namespace("bthome_broadcaster")
 BTHomeBroadcaster = bthome_broadcaster_ns.class_("BTHomeBroadcaster", cg.Component)
 ButtonEventAction = bthome_broadcaster_ns.class_("ButtonEventAction", automation.Action)
+CommandEventAction = bthome_broadcaster_ns.class_("CommandEventAction", automation.Action)
 DimmerEventAction = bthome_broadcaster_ns.class_("DimmerEventAction", automation.Action)
 
 CONF_SOURCE = "source"
@@ -262,8 +263,20 @@ DIMMER_EVENTS = {
     "rotate_right": "RotateRight",
 }
 
+# Maps the YAML command name to the BTHome::CommandEventType enumerator. Only
+# step_up/step_down take the steps argument; bthome-cpp omits it for the rest.
+COMMAND_EVENTS = {
+    "off": "Off",
+    "on": "On",
+    "toggle": "Toggle",
+    "step_up": "StepUp",
+    "step_down": "StepDown",
+}
+COMMANDS_WITH_STEPS = ("step_up", "step_down")
+
 CONF_BUTTON_INDEX = "button_index"
 CONF_STEPS = "steps"
+CONF_COMMAND = "command"
 
 # Each earlier button costs 2 padding bytes; 6 keeps the deepest index
 # broadcastable even in an encrypted packet (20-byte budget). With
@@ -287,6 +300,30 @@ DIMMER_EVENT_ACTION_SCHEMA = cv.Schema(
         cv.Required(CONF_EVENT): cv.one_of(*DIMMER_EVENTS, lower=True),
         cv.Optional(CONF_STEPS, default=1): cv.templatable(cv.int_range(min=1, max=255)),
     }
+)
+
+
+def validate_command_event(config):
+    # steps is part of the encoded object only for step_up/step_down. Silently
+    # dropping it elsewhere would hide a typo, so say so.
+    if CONF_STEPS in config and config[CONF_COMMAND] not in COMMANDS_WITH_STEPS:
+        raise cv.Invalid(
+            f"steps only applies to {' and '.join(COMMANDS_WITH_STEPS)}, "
+            f"not to command: {config[CONF_COMMAND]}",
+            path=[CONF_STEPS],
+        )
+    return config
+
+
+COMMAND_EVENT_ACTION_SCHEMA = cv.All(
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(BTHomeBroadcaster),
+            cv.Required(CONF_COMMAND): cv.one_of(*COMMAND_EVENTS, lower=True),
+            cv.Optional(CONF_STEPS): cv.templatable(cv.int_range(min=1, max=255)),
+        }
+    ),
+    validate_command_event,
 )
 
 
@@ -328,6 +365,31 @@ async def dimmer_event_action_to_code(config, action_id, template_arg, args):
         )
     )
     template_ = await cg.templatable(config[CONF_STEPS], args, cg.uint8)
+    cg.add(var.set_steps(template_))
+    return var
+
+
+@automation.register_action(
+    "bthome_broadcaster.command_event",
+    CommandEventAction,
+    COMMAND_EVENT_ACTION_SCHEMA,
+    synchronous=True,
+)
+async def command_event_action_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    parent = await cg.get_variable(config[CONF_ID])
+    cg.add(parent.set_has_events(True))
+    # Lets setup() warn when commands would go out unencrypted.
+    cg.add(parent.set_has_command_events(True))
+    cg.add(
+        var.set_command(
+            cg.RawExpression(f"BTHome::CommandEventType::{COMMAND_EVENTS[config[CONF_COMMAND]]}")
+        )
+    )
+    # Always set, so step_up/step_down without an explicit steps: still encode
+    # 1 step rather than the 0 a default-constructed templatable would yield.
+    template_ = await cg.templatable(config.get(CONF_STEPS, 1), args, cg.uint8)
     cg.add(var.set_steps(template_))
     return var
 

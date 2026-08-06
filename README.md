@@ -127,8 +127,9 @@ What to know:
 
 ### Events
 
-Two actions broadcast BTHome events (button presses, dimmer rotation) from
-any ESPHome automation:
+Three actions broadcast BTHome events from any ESPHome automation. Two of
+them report what happened on this device — button presses and dimmer
+rotation:
 
 ```yaml
 binary_sensor:
@@ -162,10 +163,40 @@ advertisement and every registered raw advertiser, each for
 radio part of the time. An event raised while another advertiser owns the
 slot is kept and sent — the 1.5 s burst only starts then, not when the event
 was raised — as soon as the slot comes back, whatever the rotation is
-configured to. The
-worst-case delay is therefore one full rotation:
+configured to. The worst-case delay is therefore one full rotation:
 `advertising_cycle_time × (number of advertisers + 1)`. Lower
 `esp32_ble: advertising_cycle_time` if events should go out sooner.
+
+#### Command events
+
+A third action broadcasts BTHome **command events** (object `0x3B`). These are
+not a report of something that happened here — they instruct whichever BTHome
+device is listening to act, so this turns the ESP32 into a remote control:
+
+```yaml
+binary_sensor:
+  - platform: gpio
+    pin: GPIO9
+    id: light_button
+    on_click:
+      - bthome_broadcaster.command_event:
+          command: toggle        # "off" | "on" | toggle | step_up | step_down
+      - bthome_broadcaster.command_event:
+          command: step_up
+          steps: 5               # templatable, only for step_up/step_down
+```
+
+Quote `"off"` and `"on"` — YAML would otherwise read them as booleans.
+
+`steps` is part of the encoded object only for `step_up`/`step_down` and is
+rejected on the other commands rather than silently ignored; it defaults to 1.
+
+Home Assistant does not consume these — they are meant for another BTHome
+device. **Use `encryption_key` with them.** The spec strongly advises it, and
+the reason is specific to commands: a plaintext button *report* only leaks
+that a button was pressed, while a plaintext *command* can be recorded and
+replayed by anyone in range to switch your actuator. Without encryption the
+component logs a warning at boot.
 
 A device with **only** events (no sensors) is valid: it advertises the BTHome
 *trigger-based device* flag so Home Assistant knows that radio silence is
@@ -223,8 +254,6 @@ two text entries never fit into.
 
 ## Not (yet) supported
 
-- BTHome command events (0x3B, actuator control — the library supports them,
-  ask if you need an action).
 - Multiple text sensors (see above).
 - nRF52/Zephyr targets (ESP32 family only).
 

@@ -59,6 +59,13 @@ interval:
       - bthome_broadcaster.dimmer_event:
           event: rotate_right
           steps: !lambda return 5;
+      # Command event with a templated argument, and one without steps at all
+      # (plaintext here, so this config also exercises the unencrypted warning).
+      - bthome_broadcaster.command_event:
+          command: step_down
+          steps: !lambda return 3;
+      - bthome_broadcaster.command_event:
+          command: "off"
 
 bthome_broadcaster:
   interval: 10s
