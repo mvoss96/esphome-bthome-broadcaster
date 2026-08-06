@@ -305,6 +305,17 @@ void BTHomeBroadcaster::save_counter_if_due_() {
 
 void BTHomeBroadcaster::on_advertise_() {
   const uint32_t now = millis();
+  // A pending event has been waiting for this slot since it was raised. Past
+  // kEventPendingMaxMs something is wrong (BLE disabled in between, for
+  // example) and broadcasting a long-past button press would be worse than
+  // losing it.
+  if (this->event_pending_ && (now - this->event_queued_ms_) > kEventPendingMaxMs) {
+    ESP_LOGW(TAG, "Event waited %" PRIu32 "ms for the advertising slot; dropped", now - this->event_queued_ms_);
+    this->event_pending_ = false;
+    this->event_active_ = false;
+    this->adv_size_ = 0;
+    this->has_built_ = false;
+  }
   // An active event burst owns the advertisement; the sensor payload is
   // rebuilt when the burst ends.
   if (!this->event_active_ && (!this->has_built_ || (now - this->last_build_ms_) >= this->advertise_interval_)) {
@@ -340,6 +351,13 @@ void BTHomeBroadcaster::on_advertise_() {
   err = esp_ble_gap_config_adv_data_raw(this->adv_data_, this->adv_size_);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "esp_ble_gap_config_adv_data_raw failed: %s", esp_err_to_name(err));
+    return;  // A pending event stays pending and is retried on the next slot.
+  }
+  if (this->event_pending_) {
+    // The burst is measured from here, its first transmission: an event that
+    // had to wait for the slot must not expire before it ever went on air.
+    this->event_pending_ = false;
+    this->set_timeout("event_burst", kEventBurstMs, [this]() { this->end_event_burst_(); });
   }
 }
 
@@ -378,15 +396,25 @@ template<typename AddFn> void BTHomeBroadcaster::send_event_(AddFn &&add_entries
   this->event_active_ = true;
 
   // Push the event out immediately when we currently hold the advertising
-  // slot; otherwise it goes out when esp32_ble next grants it.
+  // slot; otherwise it goes out when esp32_ble next grants it. The burst
+  // timeout is only armed once the packet is actually on air — arming it here
+  // would let it expire while another advertiser still owns the radio, and
+  // the event would be dropped without ever having been transmitted.
   if (this->advertising_) {
     esp_err_t err = esp_ble_gap_config_adv_data_raw(this->adv_data_, this->adv_size_);
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "esp_ble_gap_config_adv_data_raw failed: %s", esp_err_to_name(err));
+    if (err == ESP_OK) {
+      this->event_pending_ = false;
+      // A follow-up event within the burst replaces packet and timeout.
+      this->set_timeout("event_burst", kEventBurstMs, [this]() { this->end_event_burst_(); });
+      return;
     }
+    ESP_LOGE(TAG, "esp_ble_gap_config_adv_data_raw failed: %s", esp_err_to_name(err));
   }
-  // A follow-up event within the burst replaces packet and timeout.
-  this->set_timeout("event_burst", kEventBurstMs, [this]() { this->end_event_burst_(); });
+  this->event_pending_ = true;
+  this->event_queued_ms_ = millis();
+  // Nothing is on air yet, so a still-running timeout from an earlier burst
+  // must not end this one before it started.
+  this->cancel_timeout("event_burst");
 }
 
 void BTHomeBroadcaster::end_event_burst_() {

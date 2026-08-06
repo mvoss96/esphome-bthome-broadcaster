@@ -126,10 +126,18 @@ sensor:
           steps: 1               # templatable
 ```
 
-An event immediately takes over the advertisement (packet id incremented) and
-is repeated for 1.5 s — with the default `min_interval` of 100 ms that is ~15
+An event takes over the advertisement (packet id incremented) and is repeated
+for 1.5 s — with the default `min_interval` of 100 ms that is ~15
 transmissions, and receivers deduplicate via the packet id. Afterwards the
 normal sensor rotation resumes.
+
+`esp32_ble` rotates the advertising slot between its own service
+advertisement and every registered raw advertiser, each for
+`advertising_cycle_time` (10 s by default), so this component only holds the
+radio part of the time. An event raised while another advertiser owns the
+slot is kept and sent — the 1.5 s burst starts at its first transmission —
+as soon as the slot comes back. Lower `esp32_ble: advertising_cycle_time` if
+events should go out with less delay.
 
 A device with **only** events (no sensors) is valid: it advertises the BTHome
 *trigger-based device* flag so Home Assistant knows that radio silence is
