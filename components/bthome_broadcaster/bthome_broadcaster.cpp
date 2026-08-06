@@ -305,17 +305,25 @@ void BTHomeBroadcaster::save_counter_if_due_() {
 
 void BTHomeBroadcaster::on_advertise_() {
   const uint32_t now = millis();
-  // A pending event has been waiting for this slot since it was raised. Past
-  // kEventPendingMaxMs something is wrong (BLE disabled in between, for
-  // example) and broadcasting a long-past button press would be worse than
-  // losing it.
-  if (this->event_pending_ && (now - this->event_queued_ms_) > kEventPendingMaxMs) {
-    ESP_LOGW(TAG, "Event waited %" PRIu32 "ms for the advertising slot; dropped", now - this->event_queued_ms_);
+  // A pending event is transmitted at the very next grant, so it never waits
+  // longer than one rotation of the advertising slot, however long that is.
+  // Waiting more than twice the longest rotation observed so far means the
+  // rotation itself stopped in between (BLE disabled, for example); putting a
+  // long-past button press on air then would be worse than losing it. Checked
+  // before the measurement below, so the stalled gap does not mask itself.
+  if (this->event_pending_ && this->slot_period_ms_ != 0 &&
+      (now - this->event_queued_ms_) > 2 * this->slot_period_ms_) {
+    ESP_LOGW(TAG, "Event waited %" PRIu32 "ms for the advertising slot (rotation is %" PRIu32 "ms); dropped",
+             now - this->event_queued_ms_, this->slot_period_ms_);
     this->event_pending_ = false;
     this->event_active_ = false;
     this->adv_size_ = 0;
     this->has_built_ = false;
   }
+  if (this->last_grant_ms_ != 0) {
+    this->slot_period_ms_ = std::max(this->slot_period_ms_, now - this->last_grant_ms_);
+  }
+  this->last_grant_ms_ = now;
   // An active event burst owns the advertisement; the sensor payload is
   // rebuilt when the burst ends.
   if (!this->event_active_ && (!this->has_built_ || (now - this->last_build_ms_) >= this->advertise_interval_)) {

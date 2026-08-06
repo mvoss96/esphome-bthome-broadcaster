@@ -136,8 +136,10 @@ advertisement and every registered raw advertiser, each for
 `advertising_cycle_time` (10 s by default), so this component only holds the
 radio part of the time. An event raised while another advertiser owns the
 slot is kept and sent — the 1.5 s burst starts at its first transmission —
-as soon as the slot comes back. Lower `esp32_ble: advertising_cycle_time` if
-events should go out with less delay.
+as soon as the slot comes back, whatever the rotation is configured to. The
+worst-case delay is therefore one full rotation:
+`advertising_cycle_time × (number of advertisers + 1)`. Lower
+`esp32_ble: advertising_cycle_time` if events should go out sooner.
 
 A device with **only** events (no sensors) is valid: it advertises the BTHome
 *trigger-based device* flag so Home Assistant knows that radio silence is

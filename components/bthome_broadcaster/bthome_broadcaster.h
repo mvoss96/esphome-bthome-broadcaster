@@ -100,11 +100,6 @@ class BTHomeBroadcaster final : public Component {
   // first transmission. With the default 100ms advertising interval this
   // yields ~15 transmissions per event.
   static constexpr uint32_t kEventBurstMs = 1500;
-  // esp32_ble hands the advertising slot around between its own service
-  // advertisement and every registered raw advertiser, each for
-  // advertising_cycle_time (10s by default), so an event raised outside our
-  // slot waits at least one cycle. Past this it is too stale to broadcast.
-  static constexpr uint32_t kEventPendingMaxMs = 30000;
 
   void on_advertise_();
   void build_next_payload_();
@@ -179,6 +174,17 @@ class BTHomeBroadcaster final : public Component {
   bool event_active_{false};   // An event burst currently owns the advertisement.
   bool event_pending_{false};  // Event packet built, but not transmitted yet.
   uint32_t event_queued_ms_{0};
+  // Time between two grants of the advertising slot. esp32_ble rotates over
+  // its own service advertisement plus every registered raw advertiser, each
+  // for advertising_cycle_time — all of which are configurable and none of
+  // which is visible from here, so the period is measured instead of assumed.
+  // The maximum is kept, not the last sample: esp32_ble restarts advertising
+  // whenever another component changes its advertisement, which produces
+  // extra grants and hence gaps shorter than the real rotation. Under-
+  // estimating the period would discard events that were only waiting their
+  // turn, so the measurement errs towards delivering.
+  uint32_t slot_period_ms_{0};
+  uint32_t last_grant_ms_{0};
   uint32_t last_build_ms_{0};
   bool has_built_{false};
   bool advertising_{false};
