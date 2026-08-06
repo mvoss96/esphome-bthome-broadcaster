@@ -146,6 +146,15 @@ A device with **only** events (no sensors) is valid: it advertises the BTHome
 *trigger-based device* flag so Home Assistant knows that radio silence is
 normal, and stays quiet between events.
 
+A `button_index` above 1 pads the packet with 2 bytes per preceding button.
+With `name_placement: advertisement` the deeper indices plus the name can
+exceed the 31-byte advertisement; the event is then broadcast **without the
+name** rather than not at all — receivers identify the device by MAC, and the
+name is still part of every sensor packet. On an events-only device there are
+no sensor packets, so a deep `button_index` there means the name is never
+advertised at all; use `name_placement: scan_response` (the default) if it
+has to be visible.
+
 ### Text length limits
 
 BLE advertisements are small: after protocol overhead, a text value can use at

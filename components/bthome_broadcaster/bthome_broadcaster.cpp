@@ -401,7 +401,17 @@ template<typename AddFn> void BTHomeBroadcaster::send_event_(AddFn &&add_entries
       ESP_LOGW(TAG, "Event does not fit into the packet; dropped");
       return;
     }
-    const char *name = this->adv_name_.empty() ? nullptr : this->adv_name_.c_str();
+    // Unlike the periodic payload, an event packet is not built against a
+    // name-reduced budget: its content is fixed by the action. A deep
+    // button_index pads with 2 bytes per preceding button, which together
+    // with the name can exceed the 31-byte advertisement — build_advertising
+    // would then fail and the event would be dropped entirely. Dropping just
+    // the name is the better trade: the name is redundant (receivers identify
+    // the device by MAC) and it is still sent with every sensor packet.
+    const char *name = nullptr;
+    if (!this->adv_name_.empty() && packet.size() + 2 + this->adv_name_.size() <= kPacketCapacity) {
+      name = this->adv_name_.c_str();
+    }
     size = BTHome::build_advertising(packet, this->adv_data_, sizeof(this->adv_data_), name, this->adv_name_complete_);
   }
   if (size < 0) {
