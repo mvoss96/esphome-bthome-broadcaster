@@ -116,7 +116,11 @@ What to know:
 - The **replay-protection counter is persisted** in flash and restored with a
   safety margin of 1024 after every reboot, so receivers never see a repeated
   counter — no re-pairing needed after crashes or power loss. Flash is written
-  only once per 1024 packets.
+  only once per 1024 packets. The counter is 32 bits and never wraps: at
+  roughly 4.3 billion packets it stops instead, with an error in the log,
+  because reusing a counter value would reuse an encryption nonce. Reaching
+  that takes over a thousand years at the default 10 s interval; if it ever
+  happens, generate a new key.
 - `name_placement: advertisement` is rejected together with `encryption_key`
   (both would not leave room for any measurement); the default scan-response
   name works normally.
