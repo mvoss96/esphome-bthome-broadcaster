@@ -38,7 +38,7 @@ Reaching the ceiling takes about 4.3 billion packets, over a thousand years at t
 
 ### Dependency
 
-bthome-cpp `v0.3.2` → `v0.5.1`, four releases including the fixes from an external review of the library. No API adaptation was needed.
+bthome-cpp `v0.3.2` → `v0.5.1`, four releases of fixes and hardening. No API adaptation was needed.
 
 ## v0.5.0 (2026-08-06)
 
