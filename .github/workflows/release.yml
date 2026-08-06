@@ -1,7 +1,9 @@
 name: Release
 
-# On every version tag: compile both targets against the current ESPHome
-# stable release, then publish a GitHub release stating exactly which
+# On every version tag: extract the tag's CHANGELOG.md section as the release
+# notes (no section, no release), compile both targets against the current
+# ESPHome stable release, then publish a GitHub release — or complete one
+# started from the web UI (which pushes the same tag) — stating exactly which
 # ESPHome version this tag was tested against.
 on:
   push:
@@ -15,6 +17,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          awk -v tag="$GITHUB_REF_NAME" '
+            !found && $0 ~ "^## "tag"( |$)" { found=1; next }
+            found && (/^## / || /^---/) { exit }
+            found { print }
+            END { if (!found) exit 1 }
+          ' CHANGELOG.md > release-notes.md || {
+            echo "::error::CHANGELOG.md has no section '## $GITHUB_REF_NAME' — add one before tagging"
+            exit 1
+          }
+          cat release-notes.md
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -51,16 +67,23 @@ jobs:
             grep -hi "warning" build-*.log | grep "bthome_broadcaster"
             exit 1
           fi
-      - name: Create GitHub release
+      - name: Append tested-against footer
+        run: |
+          cat >> release-notes.md <<'EOF'
+
+          ---
+          **Tested against ESPHome ${{ steps.versions.outputs.esphome }}** (esp32-c6 and esp32, esp-idf framework).
+          bthome-cpp dependency: `${{ steps.versions.outputs.bthome_cpp }}`
+          EOF
+
+      - name: Create or complete the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --verify-tag \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            --notes "**Tested against ESPHome ${{ steps.versions.outputs.esphome }}** (esp32-c6 and esp32, esp-idf framework).
-
-          bthome-cpp dependency: \`${{ steps.versions.outputs.bthome_cpp }}\`
-          Minimum supported ESPHome: 2026.7.
-          "
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # Tag came from a web-UI release: the changelog section replaces
+            # whatever was typed there — CHANGELOG.md is the source of truth.
+            gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file release-notes.md
+          fi
