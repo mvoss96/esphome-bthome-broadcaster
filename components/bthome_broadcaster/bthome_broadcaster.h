@@ -80,6 +80,10 @@ class BTHomeBroadcaster final : public Component {
   // rotation resumes.
   void send_button_event(uint8_t button_index, BTHome::ButtonEventType event);
   void send_dimmer_event(BTHome::DimmerEventType event, uint8_t steps);
+  // Unlike button/dimmer events, a command event is not a report of what
+  // happened here but an instruction to whichever device is listening.
+  void send_command_event(BTHome::CommandEventType command, uint8_t steps);
+  void set_has_command_events(bool val) { this->has_command_events_ = val; }
 #ifndef CONFIG_ESP_HOSTED_ENABLE_BT_BLUEDROID
   void set_tx_power(esp_power_level_t val) { this->tx_power_ = val; }
 #endif
@@ -191,7 +195,8 @@ class BTHomeBroadcaster final : public Component {
   size_t next_index_{0};
   uint8_t packet_id_{0};
   bool has_events_{false};
-  bool trigger_based_{false};  // Set in setup(): events configured, no periodic entries.
+  bool has_command_events_{false};  // A command_event action exists in the config.
+  bool trigger_based_{false};       // Set in setup(): events configured, no periodic entries.
   bool event_active_{false};   // An event burst currently owns the advertisement.
   bool event_pending_{false};  // Event packet built, but not transmitted yet.
   uint32_t event_queued_ms_{0};

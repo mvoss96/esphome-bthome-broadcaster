@@ -48,6 +48,13 @@ interval:
       - bthome_broadcaster.dimmer_event:
           event: rotate_left
           steps: 3
+      # Command events instruct another BTHome device; this config is
+      # encrypted, which is what the spec advises for them.
+      - bthome_broadcaster.command_event:
+          command: toggle
+      - bthome_broadcaster.command_event:
+          command: step_up
+          steps: 5
 
 bthome_broadcaster:
   interval: 10s
