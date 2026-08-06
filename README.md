@@ -181,8 +181,11 @@ two text entries never fit into.
 - If not all values fit into the 31-byte advertisement, the component
   round-robins over the configured entries: each payload continues where the
   previous one stopped, so all values are broadcast over successive intervals.
-- Sensors without a published state (or with NaN state) are skipped until they
-  have a value.
+- Sensors without a published state (or with a NaN/infinite state) are skipped
+  until they have a usable value.
+- Integer BTHome types (`battery`, `count`, `temperature_s8`, …) clamp the
+  sensor state to the range of the target type before rounding, so an
+  out-of-range value is capped rather than silently wrapping around.
 
 ## Not (yet) supported
 
