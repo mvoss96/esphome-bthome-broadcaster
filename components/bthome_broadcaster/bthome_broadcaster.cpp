@@ -80,7 +80,14 @@ void BTHomeBroadcaster::setup() {
     this->counter_pref_ = global_preferences->make_preference<uint32_t>(fnv1_hash("bthome_broadcaster_counter"), true);
     uint32_t counter = 0;
     this->counter_pref_.load(&counter);  // Stays 0 on first boot.
-    counter += kCounterMargin;
+    // Saturating: a plain += would wrap a near-ceiling counter back to a low
+    // value and replay nonces already used with this key.
+    counter = (counter >= kCounterMax - kCounterMargin) ? kCounterMax : counter + kCounterMargin;
+    if (counter == kCounterMax) {
+      ESP_LOGE(TAG,
+               "Encryption counter exhausted; no further encrypted advertisements can be sent. "
+               "Generate a new encryption_key (openssl rand -hex 16) and re-enter it in Home Assistant");
+    }
     this->encryptor_.setCounter(counter);
     this->counter_saved_ = counter;
     this->counter_pref_.save(&counter);

@@ -171,6 +171,12 @@ class BTHomeBroadcaster final : public Component {
   // consumed between flash writes can never repeat after a crash or power
   // loss (receivers reject non-increasing counters as replays).
   static constexpr uint32_t kCounterMargin = 1024;
+  // The margin is added saturating against this ceiling. Letting it wrap would
+  // restart the counter at a low value and reuse nonces that were already used
+  // with this key — the one thing the counter exists to prevent. bthome-cpp
+  // refuses to build a packet from this value on, so saturating turns a silent
+  // wrap into a visible stop.
+  static constexpr uint32_t kCounterMax = 0xFFFFFFFFu;
   BTHome::Encryptor encryptor_{&BTHome::mbedtls_ccm_backend};
   bool encrypted_{false};
   ESPPreferenceObject counter_pref_;
