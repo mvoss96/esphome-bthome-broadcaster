@@ -44,6 +44,11 @@ interval:
       - bthome_broadcaster.button_event:
           event: double_press
           button_index: 2
+      # Deepest index: 5 padding entries plus the in-advertisement name no
+      # longer fit into 31 bytes, so the name has to be dropped here.
+      - bthome_broadcaster.button_event:
+          event: press
+          button_index: 6
       - bthome_broadcaster.dimmer_event:
           event: rotate_right
           steps: !lambda return 5;

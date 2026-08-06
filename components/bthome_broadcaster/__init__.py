@@ -268,7 +268,9 @@ CONF_BUTTON_INDEX = "button_index"
 CONF_STEPS = "steps"
 
 # Each earlier button costs 2 padding bytes; 6 keeps the deepest index
-# broadcastable even in an encrypted packet (20-byte budget).
+# broadcastable even in an encrypted packet (20-byte budget). With
+# name_placement: advertisement the name no longer fits next to the deeper
+# indices — send_event_ then omits it rather than dropping the event.
 MAX_BUTTON_INDEX = 6
 
 BUTTON_EVENT_ACTION_SCHEMA = cv.Schema(
