@@ -16,7 +16,6 @@ from esphome.const import (
     CONF_TYPE,
 )
 from esphome.core import TimePeriod
-from esphome.util import parse_esphome_version
 
 CODEOWNERS = ["@mvoss96"]
 AUTO_LOAD = ["esp32_ble"]
@@ -40,8 +39,8 @@ CONF_MAX_INTERVAL = "max_interval"
 
 BTHOME_CPP_REPOSITORY = "https://github.com/mvoss96/bthome-cpp.git#v0.3.2"
 
-# Enforced in validate_config: the README documents this, but without a check
-# an older core fails somewhere deep in codegen instead of saying so.
+# Enforced in CONFIG_SCHEMA: the README documents this, but without a check an
+# older core fails somewhere deep in codegen instead of saying so.
 MIN_ESPHOME_VERSION = (2026, 7, 0)
 
 # Maps the user-facing type name (== bthome-cpp factory name) to the C++ argument
@@ -174,11 +173,6 @@ def validate_encryption_key(value):
 
 
 def validate_config(config):
-    if parse_esphome_version() < MIN_ESPHOME_VERSION:
-        raise cv.Invalid(
-            "bthome_broadcaster requires ESPHome "
-            f"{'.'.join(str(part) for part in MIN_ESPHOME_VERSION)} or newer"
-        )
     if config[CONF_MIN_INTERVAL] > config[CONF_MAX_INTERVAL]:
         raise cv.Invalid("min_interval must be <= max_interval")
     # No sensors required: a pure event device (only bthome_broadcaster.*_event
@@ -199,6 +193,7 @@ def validate_config(config):
 
 
 CONFIG_SCHEMA = cv.All(
+    cv.require_esphome_version(*MIN_ESPHOME_VERSION),
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(BTHomeBroadcaster),
