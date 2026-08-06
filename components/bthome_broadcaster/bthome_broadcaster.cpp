@@ -144,7 +144,11 @@ bool BTHomeBroadcaster::measurement_for_(size_t index, BTHome::Measurement &out)
 #ifdef USE_SENSOR
   if (index < this->sensors_.size()) {
     const auto &entry = this->sensors_[index];
-    if (!entry.source->has_state() || std::isnan(entry.source->state)) {
+    // Not just NaN: an infinite state would reach a float-to-integer
+    // conversion in the factory (or inside bthome-cpp's scaling for the float
+    // types), which is undefined. There is nothing sensible to broadcast for
+    // it either, so skip the entry as if it had no state.
+    if (!entry.source->has_state() || !std::isfinite(entry.source->state)) {
       return false;
     }
     out = entry.factory(entry.source->state);

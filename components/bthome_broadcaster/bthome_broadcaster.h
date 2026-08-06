@@ -30,6 +30,7 @@
 #endif
 
 #include <cmath>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -40,8 +41,20 @@ using BinarySensorFactory = BTHome::Measurement (*)(bool);
 
 // Wraps an integer-typed bthome-cpp factory so it can be stored as a
 // SensorFactory taking the raw float sensor state.
+//
+// The state is an arbitrary float and may be outside the target type's range:
+// a miscalibrated battery reading of -1, an unfiltered ADC spike of 300. A
+// direct narrowing cast wraps silently (-1 becomes 255) or, for signed types,
+// is undefined — so clamp first. The clamp is evaluated in double: float
+// cannot represent the 32-bit limits exactly, and the nearest float to
+// INT32_MAX lies *above* it, which would put the clamped value straight back
+// out of range. double is exact for every integer limit involved. NaN and
+// infinity are filtered out in measurement_for_ before this is reached.
 template<typename T, BTHome::Measurement (*F)(T)> inline BTHome::Measurement rounded_factory(float x) {
-  return F(static_cast<T>(::lroundf(x)));
+  constexpr double kLowest = static_cast<double>(std::numeric_limits<T>::lowest());
+  constexpr double kMax = static_cast<double>(std::numeric_limits<T>::max());
+  const double v = std::round(static_cast<double>(x));
+  return F(static_cast<T>(v < kLowest ? kLowest : (v > kMax ? kMax : v)));
 }
 
 class BTHomeBroadcaster final : public Component {

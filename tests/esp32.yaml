@@ -26,6 +26,13 @@ sensor:
     lambda: return 42.0;
     update_interval: 30s
 
+  # Integer-typed BTHome measurement: instantiates rounded_factory. The value
+  # is deliberately outside uint8_t so the clamping path is exercised too.
+  - platform: template
+    id: fake_battery
+    lambda: return 300.0;
+    update_interval: 30s
+
 binary_sensor:
   - platform: template
     id: fake_motion
@@ -58,6 +65,8 @@ bthome_broadcaster:
       source: fake_temperature
     - type: humidity
       source: fake_humidity
+    - type: battery
+      source: fake_battery
   binary_sensors:
     - type: motion
       source: fake_motion
