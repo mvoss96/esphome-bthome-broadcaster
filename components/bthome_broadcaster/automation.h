@@ -22,6 +22,20 @@ template<typename... Ts> class ButtonEventAction : public Action<Ts...>, public 
   uint8_t button_index_{1};
 };
 
+template<typename... Ts> class CommandEventAction : public Action<Ts...>, public Parented<BTHomeBroadcaster> {
+ public:
+  // Only step_up/step_down carry the argument; the factory ignores it for the
+  // other opcodes, so it is always passed on.
+  TEMPLATABLE_VALUE(uint8_t, steps)
+
+  void set_command(BTHome::CommandEventType command) { this->command_ = command; }
+
+  void play(Ts... x) override { this->parent_->send_command_event(this->command_, this->steps_.value(x...)); }
+
+ protected:
+  BTHome::CommandEventType command_{BTHome::CommandEventType::Toggle};
+};
+
 template<typename... Ts> class DimmerEventAction : public Action<Ts...>, public Parented<BTHomeBroadcaster> {
  public:
   TEMPLATABLE_VALUE(uint8_t, steps)

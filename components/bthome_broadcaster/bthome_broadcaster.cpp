@@ -88,6 +88,23 @@ void BTHomeBroadcaster::setup() {
   }
 #endif
 
+  // A command event is not a report of something that happened here, it tells
+  // another device to act. The BTHome spec therefore strongly advises sending
+  // command objects encrypted — in plaintext anyone in range can read them and,
+  // worse, forge them. This is a deployment decision, so it warns rather than
+  // refusing to build.
+  if (this->has_command_events_) {
+    bool encrypted = false;
+#ifdef USE_BTHOME_ENCRYPTION
+    encrypted = this->encrypted_;
+#endif
+    if (!encrypted) {
+      ESP_LOGW(TAG,
+               "command_event without encryption_key: anyone in range can observe and spoof these commands. "
+               "The BTHome spec advises sending command objects only in encrypted advertisements");
+    }
+  }
+
   this->adv_params_ = {
       .adv_int_min = static_cast<uint16_t>(this->min_interval_ / 0.625f),
       .adv_int_max = static_cast<uint16_t>(this->max_interval_ / 0.625f),
@@ -487,6 +504,10 @@ void BTHomeBroadcaster::send_button_event(uint8_t button_index, BTHome::ButtonEv
 
 void BTHomeBroadcaster::send_dimmer_event(BTHome::DimmerEventType event, uint8_t steps) {
   this->send_event_([&](auto &packet) { return packet.add(BTHome::dimmer_event(event, steps)); });
+}
+
+void BTHomeBroadcaster::send_command_event(BTHome::CommandEventType command, uint8_t steps) {
+  this->send_event_([&](auto &packet) { return packet.add(BTHome::command_event(command, steps)); });
 }
 
 void BTHomeBroadcaster::gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
