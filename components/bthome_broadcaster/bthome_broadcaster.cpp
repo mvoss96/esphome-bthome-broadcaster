@@ -311,8 +311,11 @@ void BTHomeBroadcaster::on_advertise_() {
   // rotation itself stopped in between (BLE disabled, for example); putting a
   // long-past button press on air then would be worse than losing it. Checked
   // before the measurement below, so the stalled gap does not mask itself.
+  // The condition is halved rather than the period doubled: a period past
+  // 24.8 days would overflow 2 * slot_period_ms_ and then compare against a
+  // wrapped-around value.
   if (this->event_pending_ && this->slot_period_ms_ != 0 &&
-      (now - this->event_queued_ms_) > 2 * this->slot_period_ms_) {
+      (now - this->event_queued_ms_) / 2 > this->slot_period_ms_) {
     ESP_LOGW(TAG, "Event waited %" PRIu32 "ms for the advertising slot (rotation is %" PRIu32 "ms); dropped",
              now - this->event_queued_ms_, this->slot_period_ms_);
     this->event_pending_ = false;
@@ -362,8 +365,9 @@ void BTHomeBroadcaster::on_advertise_() {
     return;  // A pending event stays pending and is retried on the next slot.
   }
   if (this->event_pending_) {
-    // The burst is measured from here, its first transmission: an event that
-    // had to wait for the slot must not expire before it ever went on air.
+    // The burst is measured from here, where the controller takes the packet:
+    // an event that had to wait for the slot must not expire before it was
+    // ever handed over.
     this->event_pending_ = false;
     this->set_timeout("event_burst", kEventBurstMs, [this]() { this->end_event_burst_(); });
   }
@@ -405,7 +409,7 @@ template<typename AddFn> void BTHomeBroadcaster::send_event_(AddFn &&add_entries
 
   // Push the event out immediately when we currently hold the advertising
   // slot; otherwise it goes out when esp32_ble next grants it. The burst
-  // timeout is only armed once the packet is actually on air — arming it here
+  // timeout is only armed once the controller has the packet — arming it here
   // would let it expire while another advertiser still owns the radio, and
   // the event would be dropped without ever having been transmitted.
   if (this->advertising_) {

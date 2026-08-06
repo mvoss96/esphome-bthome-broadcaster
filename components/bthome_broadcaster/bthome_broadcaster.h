@@ -96,9 +96,11 @@ class BTHomeBroadcaster final : public Component {
   static constexpr size_t kPacketCapacity = kMaxAdvBytes - kFlagsBytes;
   static constexpr size_t kMaxNameLenScanRsp = kMaxAdvBytes - 2;  // Scan response minus AD overhead.
   static constexpr size_t kMaxNameLenAdv = 10;  // Keeps room for measurements in the advertisement.
-  // How long an event packet keeps the advertisement slot, counted from its
-  // first transmission. With the default 100ms advertising interval this
-  // yields ~15 transmissions per event.
+  // How long an event packet keeps the advertisement slot, counted from the
+  // moment the controller accepts it — the actual first transmission follows
+  // a few milliseconds later, which is not worth tracking against a 1.5s
+  // burst. With the default 100ms advertising interval this yields ~15
+  // transmissions per event.
   static constexpr uint32_t kEventBurstMs = 1500;
 
   void on_advertise_();
