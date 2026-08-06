@@ -61,9 +61,10 @@ class BTHomeBroadcaster final : public Component {
 #endif
   void set_has_events(bool val) { this->has_events_ = val; }
 
-  // Event actions: the event packet replaces the advertisement immediately
-  // and is repeated for kEventBurstMs (receivers dedupe via packet id),
-  // then the regular sensor rotation resumes.
+  // Event actions: the event packet replaces the advertisement as soon as
+  // this component owns the advertising slot and is repeated for
+  // kEventBurstMs (receivers dedupe via packet id), then the regular sensor
+  // rotation resumes.
   void send_button_event(uint8_t button_index, BTHome::ButtonEventType event);
   void send_dimmer_event(BTHome::DimmerEventType event, uint8_t steps);
 #ifndef CONFIG_ESP_HOSTED_ENABLE_BT_BLUEDROID
@@ -95,8 +96,11 @@ class BTHomeBroadcaster final : public Component {
   static constexpr size_t kPacketCapacity = kMaxAdvBytes - kFlagsBytes;
   static constexpr size_t kMaxNameLenScanRsp = kMaxAdvBytes - 2;  // Scan response minus AD overhead.
   static constexpr size_t kMaxNameLenAdv = 10;  // Keeps room for measurements in the advertisement.
-  // How long an event packet keeps the advertisement slot. With the default
-  // 100ms advertising interval this yields ~15 transmissions per event.
+  // How long an event packet keeps the advertisement slot, counted from the
+  // moment the controller accepts it — the actual first transmission follows
+  // a few milliseconds later, which is not worth tracking against a 1.5s
+  // burst. With the default 100ms advertising interval this yields ~15
+  // transmissions per event.
   static constexpr uint32_t kEventBurstMs = 1500;
 
   void on_advertise_();
@@ -170,6 +174,19 @@ class BTHomeBroadcaster final : public Component {
   bool has_events_{false};
   bool trigger_based_{false};  // Set in setup(): events configured, no periodic entries.
   bool event_active_{false};   // An event burst currently owns the advertisement.
+  bool event_pending_{false};  // Event packet built, but not transmitted yet.
+  uint32_t event_queued_ms_{0};
+  // Time between two grants of the advertising slot. esp32_ble rotates over
+  // its own service advertisement plus every registered raw advertiser, each
+  // for advertising_cycle_time — all of which are configurable and none of
+  // which is visible from here, so the period is measured instead of assumed.
+  // The maximum is kept, not the last sample: esp32_ble restarts advertising
+  // whenever another component changes its advertisement, which produces
+  // extra grants and hence gaps shorter than the real rotation. Under-
+  // estimating the period would discard events that were only waiting their
+  // turn, so the measurement errs towards delivering.
+  uint32_t slot_period_ms_{0};
+  uint32_t last_grant_ms_{0};
   uint32_t last_build_ms_{0};
   bool has_built_{false};
   bool advertising_{false};
